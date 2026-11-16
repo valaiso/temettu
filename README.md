@@ -1,4 +1,4 @@
-# Temettü Takvimi
+# Dividend Investing
 
 ABD ve BIST hisse / ETF / fonlarının hangi ay ne kadar temettü ödeyeceğini gösteren kişisel sayfa.
 

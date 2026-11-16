@@ -186,7 +186,7 @@ function render() {
     const v = { filter: state.filter, cur: state.cur, chartMode: state.chart }[id];
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle('on', b.dataset.v === v));
   }
-  document.getElementById('eyebrow').textContent = { ALL: 'TEMETTÜ PORTFÖYÜ', US: 'ABD PORTFÖYÜ', TR: 'BIST PORTFÖYÜ' }[state.filter];
+  document.getElementById('eyebrow').textContent = { ALL: 'DIVIDEND INVESTING', US: 'DIVIDEND INVESTING · ABD', TR: 'DIVIDEND INVESTING · BIST' }[state.filter];
 
   const proj = new Map(hs.map((h) => [h.symbol, projection(h)]));
   const filled = new Set();
