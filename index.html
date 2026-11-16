@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Temettü Takvimi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <div class="eyebrow" id="eyebrow">TEMETTÜ PORTFÖYÜ</div>
+        <h1>Her Ay Temettü Takvimi</h1>
+        <div class="sub" id="subtitle">—</div>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="search">
+        <input id="q" type="search" placeholder="Hisse, ETF veya fon ara (ör. KO, SCHD, TUPRS)…" autocomplete="off">
+        <div id="results" class="results" hidden></div>
+      </div>
+      <div class="seg" id="filter">
+        <button data-v="ALL">Tümü</button><button data-v="US">ABD</button><button data-v="TR">BIST</button>
+      </div>
+      <div class="seg" id="cur">
+        <button data-v="USD">$</button><button data-v="TRY">₺</button>
+      </div>
+    </section>
+
+    <div id="addForm" class="panel addform" hidden></div>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel calendar">
+      <div class="cal" id="cal"></div>
+    </section>
+
+    <section class="cards" id="cards"></section>
+
+    <section class="panel chartbox">
+      <div class="chart-head">
+        <h2 id="chartTitle">Gelişim</h2>
+        <div class="seg" id="chartMode">
+          <button data-v="monthly">Aylık temettü</button><button data-v="daily">Günlük gelişim</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <p class="note" id="chartNote"></p>
+    </section>
+
+    <details class="panel settings">
+      <summary>Ayarlar ve yedek</summary>
+      <div class="set-grid">
+        <button id="refresh" class="btn">Verileri yenile</button>
+        <button id="export" class="btn">Yedeği indir (JSON)</button>
+        <label class="btn file">Yedeği yükle<input id="import" type="file" accept="application/json" hidden></label>
+      </div>
+      <p class="note" id="status"></p>
+      <p class="note">Tutarlar stopaj düşülmüş (net) gösterilir. Stopaj her ödemenin tarihindeki yasal orana göre otomatik uygulanır: BIST %15 (22.12.2024 öncesi %10), BIST'teki GYO ve diğer yatırım ortaklıkları %0, ABD %20 (W-8BEN ile).</p>
+      <p class="note">Gelecek aylar son 12 ayın temettülerinden tahmin edilir; ödeme tarihi Yahoo'dan alınamazsa ex-tarihinden tahmin edilir. Verilerin tamamı yalnızca bu tarayıcıda saklanır, cihaz değiştirirken yedeği indirip yükleyin.</p>
+    </details>
+  </main>
+  <div id="tip" class="tip" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
