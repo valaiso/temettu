@@ -93,12 +93,28 @@ async function stockAnalysis(symbol, market, type) {
   return null;
 }
 
+// Yahoo grafiğinden günlük kapanışlar (bölünmeye göre düzeltilmiş, temettüye göre düzeltilmemiş).
+function closes(chart, tz) {
+  const ts = chart.timestamp || [];
+  const cl = chart.indicators?.quote?.[0]?.close || [];
+  const out = [];
+  for (let i = 0; i < ts.length; i++) {
+    const c = Number(cl[i]);
+    if (!(c > 0)) continue;
+    const d = isoDate(ts[i] * 1000, tz);
+    const v = Math.round(c * 10000) / 10000;
+    if (out.length && out[out.length - 1][0] === d) out[out.length - 1][1] = v; else out.push([d, v]);
+  }
+  return out;
+}
+
 async function symbolData(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=10y&interval=1mo&events=div`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=10y&interval=1d&events=div`;
   const chart = (await getJson(url))?.chart?.result?.[0];
   if (!chart) return null;
   const meta = chart.meta || {};
   const tz = meta.exchangeTimezoneName || "UTC";
+  const px = closes(chart, tz);
   const market = symbol.endsWith(".IS") ? "TR" : "US";
   const type = String(meta.instrumentType || "EQUITY").toUpperCase();
   const base = {
@@ -108,6 +124,7 @@ async function symbolData(symbol) {
     price: Number(meta.regularMarketPrice) || null,
     type,
     market,
+    px, // günlük kapanış [[YYYY-MM-DD, fiyat], ...] (birikimli getiri grafiği için)
   };
 
   const sa = await stockAnalysis(symbol, market, type);
@@ -128,11 +145,13 @@ async function symbolData(symbol) {
   return { ...base, divs, nextEx: cal.nextEx, nextPay: cal.nextPay, lag, source: "yahoo" };
 }
 
+// Güncel USD/TRY ve 10 yıllık günlük geçmiş (geçmiş değerleri o günün kuruyla çevirmek için).
 async function usdTry() {
   try {
-    const j = await getJson("https://query1.finance.yahoo.com/v8/finance/chart/USDTRY=X?range=1d&interval=1d");
-    return Number(j?.chart?.result?.[0]?.meta?.regularMarketPrice) || null;
-  } catch { return null; }
+    const j = await getJson("https://query1.finance.yahoo.com/v8/finance/chart/USDTRY=X?range=10y&interval=1d");
+    const chart = j?.chart?.result?.[0];
+    return { rate: Number(chart?.meta?.regularMarketPrice) || null, hist: chart ? closes(chart, "UTC") : [] };
+  } catch { return { rate: null, hist: [] }; }
 }
 
 const US_EXCHANGES = new Set(["NYQ", "NMS", "NGM", "NCM", "PCX", "ASE", "BTS", "NAS", "NYS", "PNK", "OQB", "OQX", "CBO"]);
@@ -179,7 +198,7 @@ export async function handler(req) {
       Promise.all(symbols.map(async (s) => [s, await symbolData(s).catch(() => null)])),
       usdTry(),
     ]);
-    return json({ ok: true, fx: { USDTRY: fx }, data: Object.fromEntries(entries.filter(([, d]) => d)) },
+    return json({ ok: true, fx: { USDTRY: fx.rate, USDTRY_HIST: fx.hist }, data: Object.fromEntries(entries.filter(([, d]) => d)) },
       200, { "Cache-Control": "public, max-age=1800" });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 502);

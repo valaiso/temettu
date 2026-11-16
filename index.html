@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dividend Investing</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -18,6 +19,7 @@
         <h1>Her Ay Temettü Takvimi</h1>
         <div class="sub" id="subtitle">—</div>
       </div>
+      <img class="logo" src="etf-logo.png" alt="Dividend Investing logosu" width="480" height="300">
     </header>
 
     <section class="toolbar">
@@ -45,14 +47,30 @@
 
     <section class="panel chartbox">
       <div class="chart-head">
-        <h2 id="chartTitle">Gelişim</h2>
-        <div class="seg" id="chartMode">
-          <button data-v="monthly">Aylık temettü</button><button data-v="daily">Günlük gelişim</button>
-        </div>
+        <h2>Aylık temettü geliri</h2>
       </div>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
       <p class="note" id="chartNote"></p>
     </section>
+
+    <section class="panel chartbox">
+      <div class="chart-head">
+        <h2>Birikimli getiri</h2>
+        <div class="seg" id="range">
+          <button data-v="1H">1 Hafta</button><button data-v="1A">1 Ay</button><button data-v="3A">3 Ay</button><button data-v="6A">6 Ay</button><button data-v="1Y">1 Yıl</button><button data-v="3Y">3 Yıl</button><button data-v="5Y">5 Yıl</button><button data-v="ALL">Başından Beri</button>
+        </div>
+      </div>
+      <div class="chart-sub">
+        <div class="gsum" id="growthSummary"></div>
+        <div class="seg" id="growthMode">
+          <button data-v="value">Getiri</button><button data-v="income">Temettü geliri</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="growth"></canvas></div>
+      <p class="note" id="growthNote"></p>
+    </section>
+
+    <section class="panel taxbox" id="taxbox"></section>
 
     <details class="panel settings">
       <summary>Ayarlar ve yedek</summary>

@@ -16,11 +16,12 @@ const store = {
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* özel pencere vb. */ } },
 };
 const state = Object.assign(
-  { holdings: [], cur: 'USD', filter: 'ALL', chart: 'monthly' },
+  { holdings: [], cur: 'USD', filter: 'ALL', growthMode: 'value', range: '1Y' },
   store.get('temettu.state', {}),
 );
+delete state.chart;
 delete state.tax; // eski sürümdeki elle girilen stopaj ayarı artık kullanılmıyor
-const cache = Object.assign({ data: {}, fx: null, at: 0 }, store.get('temettu.cache', {}));
+const cache = Object.assign({ data: {}, fx: null, fxHist: [], at: 0 }, store.get('temettu.cache', {}));
 const save = () => store.set('temettu.state', state);
 const saveCache = () => store.set('temettu.cache', cache);
 
@@ -63,14 +64,15 @@ async function api(params, fresh = false) {
 }
 
 async function refresh(symbols = state.holdings.map((h) => h.symbol), force = false) {
-  const need = force ? symbols : symbols.filter((s) => !cache.data[s] || Date.now() - (cache.data[s].fetchedAt || 0) > CACHE_TTL);
+  const need = force ? symbols : symbols.filter((s) => !cache.data[s] || !cache.data[s].px || Date.now() - (cache.data[s].fetchedAt || 0) > CACHE_TTL);
   if (!need.length) return;
   setStatus('Veriler güncelleniyor…');
   try {
-    const j = await api({ symbols: need.join(',') }, force);
+    const j = await api({ symbols: need.join(','), v: 2 }, force); // v: yanıt biçimi değişince eski tarayıcı önbelleğini atlamak için
     const now = Date.now();
     for (const [s, d] of Object.entries(j.data)) cache.data[s] = { ...d, fetchedAt: now };
     if (j.fx?.USDTRY) cache.fx = j.fx.USDTRY;
+    if (j.fx?.USDTRY_HIST?.length) cache.fxHist = j.fx.USDTRY_HIST;
     cache.at = now;
     saveCache();
     const missing = need.filter((s) => !j.data[s]);
@@ -182,8 +184,8 @@ function render() {
   const t = today();
   const nowMonth = new Date().getMonth() + 1;
 
-  for (const id of ['filter', 'cur', 'chartMode']) {
-    const v = { filter: state.filter, cur: state.cur, chartMode: state.chart }[id];
+  for (const id of ['filter', 'cur']) {
+    const v = { filter: state.filter, cur: state.cur }[id];
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle('on', b.dataset.v === v));
   }
   document.getElementById('eyebrow').textContent = { ALL: 'DIVIDEND INVESTING', US: 'DIVIDEND INVESTING · ABD', TR: 'DIVIDEND INVESTING · BIST' }[state.filter];
@@ -254,79 +256,16 @@ function render() {
   }).join('');
 
   renderChart(hs);
+  renderTax();
 }
 
 // "12 ayın 4'ü / 6'sı / 12'si dolu"
 const suffix = (n) => ({ 0: 'ı', 1: 'i', 2: 'si', 3: 'ü', 4: 'ü', 5: 'i', 6: 'sı', 7: 'si', 8: 'i', 9: 'u', 10: 'u', 11: 'i', 12: 'si' })[n];
 function colorOf(h) { return COLORS[state.holdings.indexOf(h) % COLORS.length]; }
 
-// ---------- Grafik ----------
-let chart;
-function renderChart(hs) {
-  const canvas = document.getElementById('chart');
-  const note = document.getElementById('chartNote');
-  if (typeof Chart === 'undefined') { note.textContent = 'Grafik kütüphanesi yüklenemedi.'; return; }
-  const t = today();
-  const cur = state.cur;
-  const tickFmt = (v) => money(v, cur, Math.abs(v) >= 100 ? 0 : 2);
-  let config;
-
-  if (state.chart === 'monthly') {
-    document.getElementById('chartTitle').textContent = 'Aylık temettü geliri';
-    const firstLog = hs.map((h) => h.log[0]?.d).filter(Boolean).sort()[0] || t;
-    const nowKey = monthKey(t);
-    let start = monthKey(firstLog);
-    if (start < addMonths(nowKey, -23)) start = addMonths(nowKey, -23);
-    if (start > addMonths(nowKey, -5)) start = addMonths(nowKey, -5);
-    const end = addMonths(nowKey, 11);
-    const keys = [];
-    for (let k = start; k <= end; k = addMonths(k, 1)) keys.push(k);
-    const got = Object.fromEntries(keys.map((k) => [k, 0]));
-    const exp = Object.fromEntries(keys.map((k) => [k, 0]));
-    for (const h of hs) {
-      const c = curOf(h), q = qtyAt(h, t);
-      for (const r of received(h)) if (r.pay.slice(0, 7) in got) got[r.pay.slice(0, 7)] += toCur(r.value, c);
-      for (const p of projection(h)) { const k = monthKey(p.pay); if (k in exp && p.pay > t) exp[k] += toCur(q * p.amt * net(h, p.pay), c); }
-    }
-    config = {
-      type: 'bar',
-      data: {
-        labels: keys.map((k) => `${MONTHS[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`),
-        datasets: [
-          { label: 'Alınan', data: keys.map((k) => got[k]), backgroundColor: '#f2c14e', borderRadius: 5, stack: 's' },
-          { label: 'Beklenen', data: keys.map((k) => exp[k]), backgroundColor: 'rgba(242,193,78,.28)', borderColor: 'rgba(242,193,78,.6)', borderWidth: 1, borderRadius: 5, stack: 's' },
-        ],
-      },
-    };
-    note.textContent = 'Koyu çubuk: ödemesi gerçekleşmiş temettü. Açık çubuk: mevcut adetlerle beklenen. Karışık para birimleri güncel USD/TRY kuruyla çevrilir.';
-  } else {
-    document.getElementById('chartTitle').textContent = 'Günlük gelişim';
-    const firstLog = hs.map((h) => h.log[0]?.d).filter(Boolean).sort()[0] || t;
-    let start = firstLog < addDays(t, -1095) ? addDays(t, -1095) : firstLog;
-    if (start > addDays(t, -30)) start = addDays(t, -30);
-    const labels = [], annual = [], cum = [];
-    const rec = hs.flatMap((h) => received(h).map((r) => ({ pay: r.pay, v: toCur(r.value, curOf(h)) }))).sort((a, b) => a.pay.localeCompare(b.pay));
-    const evsBy = new Map(hs.map((h) => [h.symbol, events(h).filter((e) => !e.estAmt)]));
-    let ri = 0, run = 0;
-    for (let d = start; d <= t; d = addDays(d, 1)) {
-      while (ri < rec.length && rec[ri].pay <= d) run += rec[ri++].v || 0;
-      let a = 0;
-      for (const h of hs) { const q = qtyAt(h, d); if (q > 0) a += toCur(q * annualPerShare(evsBy.get(h.symbol), d) * net(h, d), curOf(h)); }
-      labels.push(d); annual.push(a); cum.push(run);
-    }
-    config = {
-      type: 'line',
-      data: {
-        labels: labels.map((d) => new Date(d + 'T00:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: '2-digit' })),
-        datasets: [
-          { label: 'Yıllık temettü geliri', data: annual, borderColor: '#f2c14e', backgroundColor: 'rgba(242,193,78,.12)', fill: true, tension: .2, pointRadius: 0, borderWidth: 2, stepped: true },
-          { label: 'Toplam alınan', data: cum, borderColor: '#7fd18b', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, stepped: true },
-        ],
-      },
-    };
-    note.textContent = 'Altın çizgi: o günkü adetlerinizle bir yılda alacağınız net temettü (o güne kadar açıklanan son bir yıllık temettülerle). Yeşil çizgi: bugüne kadar alınan toplam. Adet değiştirdikçe gün gün kaydedilir.';
-  }
-
+// ---------- Grafikler ----------
+const charts = {};
+function drawChart(id, config, cur) {
   config.options = {
     responsive: true, maintainAspectRatio: false, animation: false,
     interaction: { mode: 'index', intersect: false },
@@ -335,12 +274,203 @@ function renderChart(hs) {
       tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${money(c.parsed.y, cur)}` } },
     },
     scales: {
-      x: { stacked: true, ticks: { color: '#8a909b', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } },
-      y: { stacked: config.type === 'bar', beginAtZero: true, ticks: { color: '#8a909b', callback: tickFmt }, grid: { color: 'rgba(255,255,255,.06)' } },
+      x: { stacked: config.type === 'bar', ticks: { color: '#8a909b', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false } },
+      y: { stacked: config.type === 'bar', beginAtZero: config.type === 'bar', ticks: { color: '#8a909b', callback: (v) => money(v, cur, Math.abs(v) >= 100 ? 0 : 2) }, grid: { color: 'rgba(255,255,255,.06)' } },
     },
   };
-  if (chart) chart.destroy();
-  chart = new Chart(canvas, config);
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), config);
+}
+
+function renderChart(hs) {
+  if (typeof Chart === 'undefined') { document.getElementById('chartNote').textContent = 'Grafik kütüphanesi yüklenemedi.'; return; }
+  renderMonthly(hs);
+  renderGrowth(hs);
+}
+
+function renderMonthly(hs) {
+  const t = today();
+  const firstLog = hs.map((h) => h.log[0]?.d).filter(Boolean).sort()[0] || t;
+  const nowKey = monthKey(t);
+  let start = monthKey(firstLog);
+  if (start < addMonths(nowKey, -23)) start = addMonths(nowKey, -23);
+  if (start > addMonths(nowKey, -5)) start = addMonths(nowKey, -5);
+  const end = addMonths(nowKey, 11);
+  const keys = [];
+  for (let k = start; k <= end; k = addMonths(k, 1)) keys.push(k);
+  const got = Object.fromEntries(keys.map((k) => [k, 0]));
+  const exp = Object.fromEntries(keys.map((k) => [k, 0]));
+  for (const h of hs) {
+    const c = curOf(h), q = qtyAt(h, t);
+    for (const r of received(h)) if (r.pay.slice(0, 7) in got) got[r.pay.slice(0, 7)] += toCur(r.value, c);
+    for (const p of projection(h)) { const k = monthKey(p.pay); if (k in exp && p.pay > t) exp[k] += toCur(q * p.amt * net(h, p.pay), c); }
+  }
+  drawChart('chart', {
+    type: 'bar',
+    data: {
+      labels: keys.map((k) => `${MONTHS[Number(k.slice(5)) - 1]} ${k.slice(2, 4)}`),
+      datasets: [
+        { label: 'Alınan', data: keys.map((k) => got[k]), backgroundColor: '#f2c14e', borderRadius: 5, stack: 's' },
+        { label: 'Beklenen', data: keys.map((k) => exp[k]), backgroundColor: 'rgba(242,193,78,.28)', borderColor: 'rgba(242,193,78,.6)', borderWidth: 1, borderRadius: 5, stack: 's' },
+      ],
+    },
+  }, state.cur);
+  document.getElementById('chartNote').textContent = 'Koyu çubuk: ödemesi gerçekleşmiş temettü. Açık çubuk: mevcut adetlerle beklenen. Karışık para birimleri güncel USD/TRY kuruyla çevrilir.';
+}
+
+// Tarihe göre sıralı [[iso, değer], ...] dizisinde o güne kadarki son değer.
+function lastAt(arr, iso) {
+  if (!arr?.length) return null;
+  if (arr[0][0] > iso) return arr[0][1];
+  let lo = 0, hi = arr.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (arr[mid][0] <= iso) lo = mid; else hi = mid - 1; }
+  return arr[lo][1];
+}
+const fxAt = (iso) => lastAt(cache.fxHist, iso) || cache.fx;
+function convAt(value, from, iso, to = state.cur) {
+  if (from === to) return value;
+  const fx = fxAt(iso);
+  if (!fx) return NaN;
+  if (from === 'USD' && to === 'TRY') return value * fx;
+  if (from === 'TRY' && to === 'USD') return value / fx;
+  return NaN;
+}
+
+const RANGES = [['1H', 7], ['1A', 30], ['3A', 91], ['6A', 182], ['1Y', 365], ['3Y', 1095], ['5Y', 1826], ['ALL', null]];
+
+// Gün gün: yatırılan para (adet eklemeleri o günün fiyatıyla), portföy değeri, alınan temettü ve yıllık temettü geliri.
+function growthSeries(hs) {
+  const t = today();
+  let first = hs.map((h) => h.log[0]?.d).filter(Boolean).sort()[0];
+  if (!first || first > t) return [];
+  if (first < addDays(t, -3650)) first = addDays(t, -3650);
+  const flows = [];
+  for (const h of hs) {
+    const info = cache.data[h.symbol], c = curOf(h);
+    let prev = 0;
+    for (const e of h.log) {
+      const d = e.d < first ? first : e.d;
+      const p = lastAt(info?.px, d);
+      if (p) flows.push({ d, v: convAt((e.q - prev) * p, c, d) });
+      prev = e.q;
+    }
+  }
+  flows.sort((a, b) => a.d.localeCompare(b.d));
+  const rec = hs.flatMap((h) => received(h).map((r) => ({ d: r.pay, v: convAt(r.value, curOf(h), r.pay) }))).sort((a, b) => a.d.localeCompare(b.d));
+  const evsBy = new Map(hs.map((h) => [h.symbol, events(h).filter((e) => !e.estAmt)]));
+  const out = [];
+  let fi = 0, ri = 0, invested = 0, divs = 0;
+  for (let d = first; d <= t; d = addDays(d, 1)) {
+    while (fi < flows.length && flows[fi].d <= d) invested += flows[fi++].v || 0;
+    while (ri < rec.length && rec[ri].d <= d) divs += rec[ri++].v || 0;
+    const wd = new Date(d + 'T00:00:00Z').getUTCDay();
+    if ((wd === 0 || wd === 6) && d !== t && d !== first) continue; // hafta sonları atlanır
+    let value = 0, income = 0;
+    for (const h of hs) {
+      const q = qtyAt(h, d);
+      if (!(q > 0)) continue;
+      const info = cache.data[h.symbol], c = curOf(h);
+      const p = lastAt(info?.px, d);
+      if (p) value += convAt(q * p, c, d);
+      income += convAt(q * annualPerShare(evsBy.get(h.symbol), d) * net(h, d), c, d);
+    }
+    out.push({ d, invested, value, divs, income });
+  }
+  return out;
+}
+
+function renderGrowth(hs) {
+  document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('on', b.dataset.v === state.range));
+  document.querySelectorAll('#growthMode button').forEach((b) => b.classList.toggle('on', b.dataset.v === state.growthMode));
+  const all = growthSeries(hs);
+  const days = RANGES.find((r) => r[0] === state.range)?.[1];
+  const from = days ? addDays(today(), -days) : '0000';
+  const s = all.filter((x) => x.d >= from);
+  const sum = document.getElementById('growthSummary');
+  const note = document.getElementById('growthNote');
+  const cur = state.cur;
+  const labels = s.map((x) => new Date(x.d + 'T00:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', ...(days && days <= 182 ? {} : { year: '2-digit' }) }));
+  const line = (label, data, rgb, fill = false) => ({
+    label, data, borderColor: `rgb(${rgb})`, backgroundColor: fill ? `rgba(${rgb},.10)` : 'transparent',
+    fill, pointRadius: s.length < 40 ? 2 : 0, borderWidth: 2, tension: .15,
+  });
+  if (!s.length) {
+    sum.innerHTML = '';
+    note.textContent = 'Grafik için en az bir kalem ekleyin.';
+    drawChart('growth', { type: 'line', data: { labels: [], datasets: [] } }, cur);
+    return;
+  }
+  const a = s[0], b = s.at(-1);
+  const sign = (v) => (v >= 0 ? '+' : '');
+  if (state.growthMode === 'income') {
+    const ch = b.income - a.income;
+    sum.innerHTML = `<span>Yıllık temettü geliri <b>${money(b.income, cur)}</b></span>` +
+      `<span class="${ch >= 0 ? 'up' : 'down'}">Bu aralıkta ${sign(ch)}${money(ch, cur)}</span>` +
+      `<span>Aralıkta alınan <b>${money(b.divs - a.divs, cur)}</b></span>`;
+    drawChart('growth', { type: 'line', data: { labels, datasets: [
+      line('Yıllık temettü geliri', s.map((x) => x.income), '242,193,78', true),
+      line('Toplam alınan temettü', s.map((x) => x.divs), '127,209,139'),
+    ] } }, cur);
+    note.textContent = 'Altın çizgi: o günkü adetlerinizle bir yılda alacağınız net temettü; eklemeler ve temettü artışlarıyla yükselir. Yeşil çizgi: o güne kadar hesabınıza geçen net temettülerin toplamı.';
+  } else {
+    const gain = (x) => x.value + x.divs - x.invested;
+    const total = gain(b), period = gain(b) - gain(a);
+    const periodBase = a.value + (b.invested - a.invested);
+    const pct = (v, d) => (d > 0 ? `%${((v / d) * 100).toFixed(2).replace('.', ',')}` : '—');
+    sum.innerHTML = `<span>Değer + temettü <b>${money(b.value + b.divs, cur)}</b></span>` +
+      `<span class="${period >= 0 ? 'up' : 'down'}">Bu aralıkta ${sign(period)}${money(period, cur)} (${pct(period, periodBase)})</span>` +
+      `<span class="${total >= 0 ? 'up' : 'down'}">Toplam getiri ${sign(total)}${money(total, cur)} (${pct(total, b.invested)})</span>`;
+    drawChart('growth', { type: 'line', data: { labels, datasets: [
+      line('Değer + alınan temettü', s.map((x) => x.value + x.divs), '127,209,139', true),
+      line('Portföy değeri', s.map((x) => x.value), '232,93,155'),
+      line('Yatırılan (eklemeler)', s.map((x) => x.invested), '220,224,232'),
+    ] } }, cur);
+    note.textContent = 'Beyaz: eklediğiniz para (adet artışları o günün kapanış fiyatıyla). Pembe: portföyün piyasa değeri. Yeşil: değer + bugüne kadar alınan net temettüler; beyaz çizginin üstünde kalan kısım kazancınızdır. Geçmiş değerler o günün USD/TRY kuruyla çevrilir.';
+  }
+}
+
+// ---------- ABD temettü vergi beyanı ----------
+// Türkiye'de stopaja tabi olmayan menkul sermaye iratlarının (yurt dışı temettü dahil) beyan sınırı, GVK 86/1-d.
+// Her yıl Aralık sonunda Gelir Vergisi Genel Tebliği ile açıklanır; yeni yılın tutarı açıklanınca buraya bir satır eklenir.
+const DECLARE_LIMITS = { 2025: 18000, 2026: 22000 };
+
+function renderTax() {
+  const box = document.getElementById('taxbox');
+  const t = today(), y = Number(t.slice(0, 4));
+  const known = Object.keys(DECLARE_LIMITS).map(Number).sort((a, b) => a - b);
+  const latest = known.at(-1);
+  const us = state.holdings.filter((h) => h.market === 'US');
+  const rows = [y - 1, y].map((year) => {
+    let gross = 0, withheld = 0;
+    for (const h of us) {
+      const c = curOf(h);
+      for (const e of events(h)) {
+        if (e.pay > t || !e.pay.startsWith(String(year))) continue;
+        const held = qtyAt(h, addDays(e.ex, -1));
+        if (!(held > 0)) continue;
+        const g = convAt(held * e.amt, c, e.pay, 'TRY');
+        gross += g;
+        withheld += (g * taxRate(h, e.pay)) / 100;
+      }
+    }
+    const limit = DECLARE_LIMITS[year];
+    const lim = limit ?? DECLARE_LIMITS[latest];
+    const status = !gross ? '<span class="muted">Bu yıl ABD temettüsü yok</span>'
+      : gross > lim ? `<span class="down">Sınır aşıldı · ${year + 1} Mart'ta beyan gerekir</span>`
+      : `<span class="up">Sınırın altında · beyan gerekmez (kalan ${money(lim - gross, 'TRY', 0)})</span>`;
+    return `<tr><td><b>${year}</b>${year === y ? ' <span class="muted">(devam ediyor)</span>' : ''}</td>
+      <td>${limit ? money(limit, 'TRY', 0) : `${money(lim, 'TRY', 0)} <span class="muted">(${year} tutarı henüz açıklanmadı, ${latest} tutarı)</span>`}</td>
+      <td>${money(gross, 'TRY')}</td><td>${money(withheld, 'TRY')}</td><td>${status}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<h2>ABD hisse / ETF temettüsü: vergi beyan sınırı</h2>
+    <p class="note big">ABD temettüleri Türkiye'de stopaja tabi olmadığı için <b>tevkifata tabi olmayan menkul sermaye iradı</b> sayılır. Bir yılda elde edilen
+      brüt tutarın TL karşılığı (diğer stopajsız menkul ve gayrimenkul sermaye iratlarıyla birlikte) beyan sınırını aşarsa, tamamı ertesi yılın Mart ayında
+      yıllık gelir vergisi beyannamesiyle beyan edilir. ABD'de kesilen %20 vergi, Türkiye'de hesaplanan vergiden mahsup edilir. Yurt dışı temettüde %50 istisna uygulanmaz.</p>
+    <div class="tablewrap"><table class="tax">
+      <thead><tr><th>Gelir yılı</th><th>Beyan sınırı</th><th>Brüt ABD temettün</th><th>ABD'de kesilen</th><th>Durum</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="note">Beyan sınırları: ${known.map((k) => `${k}: ${money(DECLARE_LIMITS[k], 'TRY', 0)}`).join(' · ')} (GVK 86/1-d). Yeni yılın tutarı her yıl Aralık sonunda açıklanır.
+      TL karşılıkları ödeme günündeki USD/TRY kuruyla yaklaşık hesaplanır; beyanda TCMB döviz alış kuru kullanılır. Bu bölüm bilgilendirme amaçlıdır; kesin durum için mali müşavirinize danışın.</p>`;
 }
 
 // ---------- Etkileşim ----------
@@ -353,7 +483,8 @@ function bindSeg(id, key) {
 }
 bindSeg('filter', 'filter');
 bindSeg('cur', 'cur');
-bindSeg('chartMode', 'chart');
+bindSeg('growthMode', 'growthMode');
+bindSeg('range', 'range');
 
 // Arama
 const qInput = document.getElementById('q');

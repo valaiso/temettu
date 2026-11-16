@@ -5,7 +5,8 @@ ABD ve BIST hisse / ETF / fonlarının hangi ay ne kadar temettü ödeyeceğini 
 - Arama kutusundan sembol bul (KO, SCHD, TUPRS…), adet ve ilk alış tarihini gir.
 - Takvim: her ay hangi kalemin ödeme yaptığı ve net tutarı (stopaj düşülmüş).
 - Kartlar: adet (tıklayıp değiştirilebilir), alınan temettü, yıllık beklenen ve verim.
-- Grafik: aylık alınan / beklenen temettü ve günlük gelişim (yıllık gelir + toplam alınan).
+- Grafikler: aylık alınan / beklenen temettü; birikimli getiri (yatırılan, değer, değer + temettü) ve temettü geliri, 1 hafta – başından beri.
+- ABD temettüsü için yıllık vergi beyan sınırı kontrolü (`DECLARE_LIMITS`, GVK 86/1-d).
 
 Stopaj her ödemenin tarihindeki yasal orana göre otomatik uygulanır (`app.js` içindeki `TAX_RULES` tablosu):
 BIST %15 (22.12.2024 öncesi %10), BIST'teki GYO ve diğer yatırım ortaklıkları %0, ABD %20 (W-8BEN ile).
