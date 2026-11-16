@@ -3,7 +3,7 @@
 // Yerelde (node dev.mjs) /api, GitHub Pages'te Supabase fonksiyonu kullanılır.
 const API = ['localhost', '127.0.0.1'].includes(location.hostname)
   ? '/api'
-  : 'https://jqmfvinbzgqyitqquzdc.supabase.co/functions/v1/temettu';
+  : 'https://jqmfvinbzgqyitqquzdc.supabase.co/functions/v1/TEMETTU';
 
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const COLORS = ['#8ec5f5', '#f5c451', '#f08a6c', '#8fd694', '#c49cf5', '#5fd3c9', '#f59cc8', '#d9c07a', '#7aa8ff', '#ffb36b', '#b5e48c', '#e9a3ff'];
