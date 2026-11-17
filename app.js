@@ -204,6 +204,7 @@ function render() {
   const cal = document.getElementById('cal');
   let html = `<div class="h first">HİSSE</div>` + MONTHS.map((m, i) => `<div class="h${i + 1 === nowMonth ? ' now' : ''}">${m}</div>`).join('');
   const totals = new Array(13).fill(0);
+  const byMonth = Array.from({ length: 13 }, () => []); // telefon görünümü için ay ay liste
   if (!hs.length) html += `<div class="emptyrow">Yukarıdaki arama kutusundan hisse, ETF veya fon ekleyin.</div>`;
   for (const h of hs) {
     const color = colorOf(h);
@@ -217,6 +218,7 @@ function render() {
       if (!p) { html += `<div class="${cls}"><span class="tiny"></span></div>`; continue; }
       const val = q * p.amt * net(h, p.pay);
       totals[m] += toCur(val, cur);
+      byMonth[m].push({ sym: short(h.symbol), color, val, cur, est: p.est, pay: p.pay });
       const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}<br>Net (${qtyFmt.format(q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, cur)}</b>${p.est ? '<br><i>tahmini</i>' : ''}`;
       html += `<div class="${cls}"><span class="dot" style="background:${color}" data-tip="${esc(tip)}"></span><span class="amt">${money(val, cur)}</span></div>`;
     }
@@ -225,6 +227,17 @@ function render() {
     html += `<div class="tot first">TOPLAM</div>` + totals.slice(1).map((v, i) => `<div class="tot">${v ? money(v, state.cur) : ''}</div>`).join('');
   }
   cal.innerHTML = html;
+
+  // Telefon: 12 ay alt alta, her ayda ödeme yapan hisseler ve ay toplamı.
+  document.getElementById('calm').innerHTML = !hs.length
+    ? '<div class="calm-empty">Yukarıdaki arama kutusundan hisse, ETF veya fon ekleyin.</div>'
+    : [...MONTHS.keys()].map((i) => {
+      const m = i + 1, list = byMonth[m].sort((a, b) => a.pay.localeCompare(b.pay));
+      return `<div class="calm-row${m === nowMonth ? ' now' : ''}${list.length ? '' : ' empty'}">
+        <div class="calm-head"><span class="calm-m">${MONTHS[i]}</span><span class="calm-t">${list.length ? money(totals[m], state.cur) : '—'}</span></div>
+        ${list.length ? `<div class="calm-chips">${list.map((x) => `<span class="chipx${x.est ? ' est' : ''}" title="Ödeme ${x.est ? '~' : ''}${trDate(x.pay)}"><i style="background:${x.color}"></i>${esc(x.sym)}<b>${money(x.val, x.cur)}</b></span>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
 
   // Özet
   const yearStart = `${t.slice(0, 4)}-01-01`;
@@ -279,7 +292,7 @@ function drawChart(id, config, cur) {
       tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${money(c.parsed.y, cur)}` } },
     },
     scales: {
-      x: { stacked: config.type === 'bar', ticks: { color: '#8a909b', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false } },
+      x: { stacked: config.type === 'bar', ticks: { color: '#8a909b', maxRotation: 0, autoSkip: true, maxTicksLimit: innerWidth < 640 ? 5 : 10 }, grid: { display: false } },
       y: { stacked: config.type === 'bar', beginAtZero: config.type === 'bar', ticks: { color: '#8a909b', callback: (v) => money(v, cur, Math.abs(v) >= 100 ? 0 : 2) }, grid: { color: 'rgba(255,255,255,.06)' } },
     },
   };
@@ -463,9 +476,9 @@ function renderTax() {
     const status = !gross ? '<span class="muted">Bu yıl ABD temettüsü yok</span>'
       : gross > lim ? `<span class="down">Sınır aşıldı · ${year + 1} Mart'ta beyan gerekir</span>`
       : `<span class="up">Sınırın altında · beyan gerekmez (kalan ${money(lim - gross, 'TRY', 0)})</span>`;
-    return `<tr><td><b>${year}</b>${year === y ? ' <span class="muted">(devam ediyor)</span>' : ''}</td>
-      <td>${limit ? money(limit, 'TRY', 0) : `${money(lim, 'TRY', 0)} <span class="muted">(${year} tutarı henüz açıklanmadı, ${latest} tutarı)</span>`}</td>
-      <td>${money(gross, 'TRY')}</td><td>${money(withheld, 'TRY')}</td><td>${status}</td></tr>`;
+    return `<tr><td data-l="Gelir yılı"><b>${year}</b>${year === y ? ' <span class="muted">(devam ediyor)</span>' : ''}</td>
+      <td data-l="Beyan sınırı">${limit ? money(limit, 'TRY', 0) : `${money(lim, 'TRY', 0)} <span class="muted">(${year} tutarı henüz açıklanmadı, ${latest} tutarı)</span>`}</td>
+      <td data-l="Brüt ABD temettün">${money(gross, 'TRY')}</td><td data-l="ABD'de kesilen">${money(withheld, 'TRY')}</td><td data-l="Durum">${status}</td></tr>`;
   }).join('');
   box.innerHTML = `<h2>ABD hisse / ETF temettüsü: vergi beyan sınırı</h2>
     <p class="note big">ABD temettüleri Türkiye'de stopaja tabi olmadığı için <b>tevkifata tabi olmayan menkul sermaye iradı</b> sayılır. Bir yılda elde edilen
