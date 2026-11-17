@@ -108,6 +108,17 @@ h1 { font-size: clamp(28px, 4.2vw, 50px); font-weight: 800; margin: 4px 0 6px; l
 .card .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .badge { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #10131a; flex: none; overflow: hidden; letter-spacing: -.02em; }
 .badge.long { font-size: 9px; }
+.badge { position: relative; box-shadow: 0 0 0 2px var(--c, transparent); }
+
+/* Logolar: yüklenirse harf rozetinin üstünü kaplar, yüklenemezse harf görünür kalır. */
+.av {
+  position: relative; flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--c, #3a4150); color: #10131a; font-size: 10px; font-weight: 800; line-height: 1;
+  box-shadow: 0 0 0 2px var(--c, rgba(255,255,255,.12));
+}
+.av img.lg, .badge img.lg { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.cal .name .av { width: 26px; height: 26px; font-size: 11px; }
+img.lg.alt { object-fit: contain; padding: 14%; background: #fff; } /* FMP logoları şeffaf, beyaz zemin ister */
 .card .tk { font-weight: 800; font-size: 20px; }
 .card .nm { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .card .x { position: absolute; top: 10px; right: 12px; border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 18px; }
@@ -241,7 +252,7 @@ table.tax tr:last-child td { border-bottom: 0; }
   .hy-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 12px 14px; }
   .hy-dh { display: flex; justify-content: space-between; align-items: baseline; font-size: 18px; font-weight: 800; }
   .hy-dh b { color: var(--gold); font-size: 16px; }
-  .hy-row { display: grid; grid-template-columns: 10px auto 1fr auto; align-items: center; gap: 8px; padding: 9px 0 0; margin-top: 9px; border-top: 1px solid var(--line); font-size: 14px; }
+  .hy-row { display: grid; grid-template-columns: 22px auto 1fr auto; align-items: center; gap: 8px; padding: 9px 0 0; margin-top: 9px; border-top: 1px solid var(--line); font-size: 14px; }
   .hy-row i { width: 10px; height: 10px; border-radius: 50%; }
   .hy-row span { color: var(--muted); font-size: 13px; }
   .hy-row em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -292,7 +303,7 @@ table.tax tr:last-child td { border-bottom: 0; }
 .mix-bar span { display: block; min-width: 3px; }
 .mix-list { margin-top: 12px; }
 .mix-row {
-  display: grid; grid-template-columns: 10px 64px minmax(0, 1fr) auto 58px; grid-template-rows: auto auto;
+  display: grid; grid-template-columns: 22px 64px minmax(0, 1fr) auto 58px; grid-template-rows: auto auto;
   align-items: center; column-gap: 10px; row-gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px;
 }
 .mix-row:last-child { border-bottom: 0; }
@@ -309,6 +320,6 @@ table.tax tr:last-child td { border-bottom: 0; }
   .mixbox h2 { font-size: 17px; }
   .mixbox .chart-head .mix-total { font-size: 14px; }
   .mixbox .chart-head { flex-wrap: nowrap; }
-  .mix-row { grid-template-columns: 10px 52px minmax(0, 1fr) auto 50px; column-gap: 8px; font-size: 13px; }
+  .mix-row { grid-template-columns: 22px 52px minmax(0, 1fr) auto 50px; column-gap: 8px; font-size: 13px; }
   .mix-nm { font-size: 12px; }
 }

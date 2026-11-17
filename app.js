@@ -264,7 +264,7 @@ function render() {
     const cur = curOf(h);
     const q = qtyAt(h, t);
     const byM = new Map(proj.get(h.symbol).map((p) => [Number(p.pay.slice(5, 7)), p]));
-    html += `<div class="name" style="color:${color}"><i style="background:${color}"></i>${esc(short(h.symbol))}</div>`;
+    html += `<div class="name" style="color:${color}">${avatar(h.symbol, color)}${esc(short(h.symbol))}</div>`;
     for (let m = 1; m <= 12; m++) {
       const p = byM.get(m);
       const cls = `cell${m === nowMonth ? ' now' : ''}`;
@@ -272,7 +272,7 @@ function render() {
       const raw = p.cash * net(h, p.pay);
       const val = toCur(raw, cur); // takvimdeki her tutar seçili para biriminde
       totals[m] += val;
-      byMonth[m].push({ sym: short(h.symbol), color, val, raw, cur, est: p.est, pay: p.pay });
+      byMonth[m].push({ sym: short(h.symbol), full: h.symbol, color, val, raw, cur, est: p.est, pay: p.pay });
       const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}${p.special ? ' (tek seferlik ekstra temettü dahil)' : ''}<br>Net (${qtyFmt.format(p.q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, state.cur)}</b>${native(raw, cur) ? ` (${native(raw, cur)})` : ''}${p.est ? '<br><i>tahmini</i>' : ''}`;
       html += `<div class="${cls}"><span class="dot" style="background:${color}" data-tip="${esc(tip)}"></span><span class="amt">${money(val, state.cur)}</span></div>`;
     }
@@ -310,7 +310,7 @@ function render() {
     calm.innerHTML = half(1, '1. Yarıyıl · Ocak – Haziran') + half(7, '2. Yarıyıl · Temmuz – Aralık') +
       `<div class="hy-detail">
         <div class="hy-dh"><span>${MONTHS_FULL[calSel - 1]}</span><b>${sel.length ? money(totals[calSel], state.cur) : 'Ödeme yok'}</b></div>
-        ${sel.map((x) => `<div class="hy-row"><i style="background:${x.color}"></i><b>${esc(x.sym)}</b>
+        ${sel.map((x) => `<div class="hy-row">${avatar(x.full, x.color)}<b>${esc(x.sym)}</b>
           <span>${x.est ? '~' : ''}${trDate(x.pay)}</span><em>${money(x.val, state.cur)}</em></div>`).join('')}
       </div>`;
   }
@@ -337,7 +337,7 @@ function render() {
     const yieldPct = info?.price && yrRaw && q > 0 ? (yrRaw / (q * info.price)) * 100 : null; // stopaj sonrası verim, kendi para biriminde
     return `<div class="panel card" data-sym="${esc(h.symbol)}">
       <button class="x" data-act="remove" title="Kaldır">×</button>
-      <div class="hd"><span class="badge${short(h.symbol).length >= 5 ? ' long' : ''}" style="background:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}</span>
+      <div class="hd"><span class="badge${short(h.symbol).length >= 5 ? ' long' : ''}" style="background:${colorOf(h)};--c:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}${logoImg(h.symbol)}</span>
         <div style="min-width:0"><div class="tk">${esc(short(h.symbol))}</div><div class="nm">${esc(info?.name || h.name || '')}</div></div></div>
       <div class="row">
         <div><div class="k">Adet</div><div class="qty"><input value="${qtyFmt.format(q)}" inputmode="decimal" data-act="qty" aria-label="${esc(h.symbol)} adet">
@@ -361,7 +361,7 @@ function renderMix(hs, proj, t) {
   const rows = hs.map((h) => {
     const q = qtyAt(h, t), c = curOf(h);
     const raw = proj.get(h.symbol).reduce((s, p) => s + p.cash * net(h, p.pay), 0);
-    return { sym: short(h.symbol), name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), raw, cur: c, v: toCur(raw, c) };
+    return { sym: short(h.symbol), full: h.symbol, name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), raw, cur: c, v: toCur(raw, c) };
   }).filter((r) => r.raw > 0).sort((a, b) => b.v - a.v);
   const box = document.getElementById('mix');
   if (rows.some((r) => !Number.isFinite(r.v))) { // kur alınamadıysa yanlış oran göstermek yerine uyar
@@ -379,7 +379,7 @@ function renderMix(hs, proj, t) {
   const top = rows[0];
   box.innerHTML = `<div class="mix-bar">${rows.map((r) => `<span style="width:${pct(r.v)}%;background:${r.color}" title="${esc(r.sym)} ${fmtPct(r.v)}"></span>`).join('')}</div>
     <div class="mix-list">${rows.map((r) => `<div class="mix-row">
-      <i style="background:${r.color}"></i><b>${esc(r.sym)}</b><span class="mix-nm">${esc(r.name)}</span>
+      ${avatar(r.full, r.color)}<b>${esc(r.sym)}</b><span class="mix-nm">${esc(r.name)}</span>
       <span class="mix-v">${money(r.v, state.cur)}${native(r.raw, r.cur) ? `<small>${native(r.raw, r.cur)}</small>` : ''}</span><span class="mix-p">${fmtPct(r.v)}</span>
       <span class="mix-track"><span style="width:${pct(r.v)}%;background:${r.color}"></span></span></div>`).join('')}</div>
     <p class="note">${rows.length > 1 && pct(top.v) >= 40 ? `Gelirinin ${fmtPct(top.v)}'i tek bir kalemden (${esc(top.sym)}) geliyor. ` : ''}Mevcut adetlerle önümüzdeki 12 ayın beklenen net temettüsüne göre hesaplanır.${mixed && fx ? ` Oranlar için tüm tutarlar güncel kurla (1 $ = ${money(fx, 'TRY')}) ${state.cur === 'USD' ? 'dolara' : 'TL\'ye'} çevrilir; küçük yazı kalemin kendi para birimindeki tutarıdır.` : ''}</p>`;
@@ -388,6 +388,29 @@ function renderMix(hs, proj, t) {
 // "12 ayın 4'ü / 6'sı / 12'si dolu"
 const suffix = (n) => ({ 0: 'ı', 1: 'i', 2: 'si', 3: 'ü', 4: 'ü', 5: 'i', 6: 'sı', 7: 'si', 8: 'i', 9: 'u', 10: 'u', 11: 'i', 12: 'si' })[n];
 function colorOf(h) { return COLORS[state.holdings.indexOf(h) % COLORS.length]; }
+
+// ---------- Logolar ----------
+// Önce Parqet (kare, zeminli logolar; ABD ve BIST'in .IS sembolleri), yoksa Financial Modeling Prep.
+// İkisinde de yoksa kalemin renginde harf rozeti kalır. Bulunamayan kaynak bu oturumda bir daha denenmez.
+const LOGO_SRC = [
+  (s) => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(s)}?format=png&size=96`,
+  (s) => `https://financialmodelingprep.com/image-stock/${encodeURIComponent(s)}.png`,
+];
+const logoTry = {};
+function logoImg(sym) {
+  const i = logoTry[sym] || 0;
+  if (i >= LOGO_SRC.length) return '';
+  return `<img class="lg${i ? ' alt' : ''}" src="${LOGO_SRC[i](sym)}" alt="" decoding="async" data-sym="${esc(sym)}" data-i="${i}">`;
+}
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains('lg')) return;
+  const s = img.dataset.sym, next = Number(img.dataset.i) + 1;
+  logoTry[s] = Math.max(logoTry[s] || 0, next);
+  if (next < LOGO_SRC.length) { img.dataset.i = next; img.classList.add('alt'); img.src = LOGO_SRC[next](s); } else img.remove();
+}, true);
+// Küçük yuvarlak logo (çevresinde kalemin rengi); logo yoksa baş harf.
+const avatar = (sym, color = '') => `<span class="av"${color ? ` style="--c:${color}"` : ''}>${esc(short(sym).slice(0, 1))}${logoImg(sym)}</span>`;
 
 // ---------- Grafikler ----------
 const charts = {};
@@ -629,7 +652,7 @@ qInput.addEventListener('input', () => {
       if (seq !== searchSeq) return;
       lastResults = j.results;
       resultsBox.innerHTML = j.results.length
-        ? j.results.map((r, i) => `<button data-i="${i}"><b>${esc(short(r.symbol))}</b><span class="nm">${esc(r.name)}</span>
+        ? j.results.map((r, i) => `<button data-i="${i}">${avatar(r.symbol)}<b>${esc(short(r.symbol))}</b><span class="nm">${esc(r.name)}</span>
             <span class="chip">${r.type === 'EQUITY' ? 'Hisse' : r.type === 'ETF' ? 'ETF' : 'Fon'}</span>
             <span class="chip ${r.market === 'TR' ? 'tr' : 'us'}">${r.market === 'TR' ? 'BIST' : 'ABD'}</span></button>`).join('')
         : '<div class="empty">Sonuç yok. ABD için sembol (KO), BIST için kod (TUPRS) deneyin.</div>';
@@ -858,6 +881,8 @@ if (!sb) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && syncUser) pull(); });
 }
 
-// İlk çizim: önce kayıtlı veriyle, sonra güncel veriyle.
+// İlk çizim: önce kayıtlı veriyle, sonra güncel veriyle. Sayfa açık kalırsa (telefonda ana ekran uygulaması gibi)
+// sekmeye her dönüşte 6 saatten eski veriler yenilenir.
 render();
 refresh();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
