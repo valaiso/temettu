@@ -55,12 +55,14 @@ const parseNum = (s) => Number(String(s).trim().replace(/\s/g, '').replace(/\.(?
 
 function toCur(value, from, to = state.cur) {
   if (from === to) return value;
-  const fx = cache.fx;
+  const fx = cache.fx || cache.fxHist?.at(-1)?.[1]; // güncel kur yoksa geçmişteki son kur
   if (!fx) return NaN;
   if (from === 'USD' && to === 'TRY') return value * fx;
   if (from === 'TRY' && to === 'USD') return value / fx;
   return NaN;
 }
+// Seçili para biriminin tersi farklıysa küçük not olarak gösterilecek asıl tutar: "₺291,16" gibi.
+const native = (v, cur) => (cur !== state.cur && Number.isFinite(v) ? money(v, cur) : '');
 
 // ---------- Veri ----------
 async function api(params, fresh = false) {
@@ -148,6 +150,8 @@ function received(h, until = today()) {
   }
   return out;
 }
+// Alınan temettülerin seçili para birimindeki toplamı; her ödeme kendi günündeki USD/TRY kuruyla çevrilir.
+const receivedIn = (h, from = '0000') => received(h).reduce((s, r) => (r.pay >= from ? s + convAt(r.value, curOf(h), r.pay) : s), 0);
 
 // Önümüzdeki 12 ay: son bir yıllık temettü döngüsü ileri taşınır.
 function projection(h) {
@@ -218,11 +222,12 @@ function render() {
       const p = byM.get(m);
       const cls = `cell${m === nowMonth ? ' now' : ''}`;
       if (!p) { html += `<div class="${cls}"><span class="tiny"></span></div>`; continue; }
-      const val = q * p.amt * net(h, p.pay);
-      totals[m] += toCur(val, cur);
-      byMonth[m].push({ sym: short(h.symbol), color, val, cur, est: p.est, pay: p.pay });
-      const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}<br>Net (${qtyFmt.format(q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, cur)}</b>${p.est ? '<br><i>tahmini</i>' : ''}`;
-      html += `<div class="${cls}"><span class="dot" style="background:${color}" data-tip="${esc(tip)}"></span><span class="amt">${money(val, cur)}</span></div>`;
+      const raw = q * p.amt * net(h, p.pay);
+      const val = toCur(raw, cur); // takvimdeki her tutar seçili para biriminde
+      totals[m] += val;
+      byMonth[m].push({ sym: short(h.symbol), color, val, raw, cur, est: p.est, pay: p.pay });
+      const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}<br>Net (${qtyFmt.format(q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, state.cur)}</b>${native(raw, cur) ? ` (${native(raw, cur)})` : ''}${p.est ? '<br><i>tahmini</i>' : ''}`;
+      html += `<div class="${cls}"><span class="dot" style="background:${color}" data-tip="${esc(tip)}"></span><span class="amt">${money(val, state.cur)}</span></div>`;
     }
   }
   if (hs.length) {
@@ -247,7 +252,7 @@ function render() {
             const list = byMonth[m].sort((a, b) => a.pay.localeCompare(b.pay));
             return `<button class="hy-col${m === nowMonth ? ' now' : ''}${m === calSel ? ' sel' : ''}${list.length ? '' : ' empty'}" data-m="${m}">
               <span class="hy-m">${MONTHS[m - 1]}</span>
-              <span class="hy-evs">${list.length ? list.map((x) => `<span class="ev${x.est ? ' est' : ''}" style="--c:${x.color}"><b>${esc(x.sym)}</b><small>${money(x.val, x.cur, x.val >= 100 ? 0 : 2)}</small></span>`).join('') : '<span class="ev-none"></span>'}</span>
+              <span class="hy-evs">${list.length ? list.map((x) => `<span class="ev${x.est ? ' est' : ''}" style="--c:${x.color}"><b>${esc(x.sym)}</b><small>${money(x.val, state.cur, x.val >= 100 ? 0 : 2)}</small></span>`).join('') : '<span class="ev-none"></span>'}</span>
               <span class="hy-t">${list.length ? money(totals[m], state.cur, totals[m] >= 100 ? 0 : 2) : ''}</span>
             </button>`;
           }).join('')}
@@ -259,7 +264,7 @@ function render() {
       `<div class="hy-detail">
         <div class="hy-dh"><span>${MONTHS_FULL[calSel - 1]}</span><b>${sel.length ? money(totals[calSel], state.cur) : 'Ödeme yok'}</b></div>
         ${sel.map((x) => `<div class="hy-row"><i style="background:${x.color}"></i><b>${esc(x.sym)}</b>
-          <span>${x.est ? '~' : ''}${trDate(x.pay)}</span><em>${money(x.val, x.cur)}</em></div>`).join('')}
+          <span>${x.est ? '~' : ''}${trDate(x.pay)}</span><em>${money(x.val, state.cur)}</em></div>`).join('')}
       </div>`;
   }
 
@@ -269,7 +274,8 @@ function render() {
   for (const h of hs) {
     const cur = curOf(h), q = qtyAt(h, t);
     for (const p of proj.get(h.symbol)) annual += toCur(q * p.amt * net(h, p.pay), cur);
-    for (const r of received(h)) { const v = toCur(r.value, cur); total += v; if (r.pay >= yearStart) thisYear += v; }
+    total += receivedIn(h);
+    thisYear += receivedIn(h, yearStart);
   }
   document.getElementById('stats').innerHTML = [
     ['Yıllık beklenen (net)', annual], ['Aylık ortalama', annual / 12], [`${t.slice(0, 4)} alınan`, thisYear], ['Toplam alınan', total],
@@ -278,9 +284,10 @@ function render() {
   // Kartlar
   document.getElementById('cards').innerHTML = hs.map((h) => {
     const cur = curOf(h), info = cache.data[h.symbol], q = qtyAt(h, t);
-    const got = received(h).reduce((s, r) => s + r.value, 0);
-    const yr = proj.get(h.symbol).reduce((s, p) => s + q * p.amt * net(h, p.pay), 0);
-    const yieldPct = info?.price && yr ? (yr / (q * info.price)) * 100 : null;
+    const got = receivedIn(h);
+    const yrRaw = proj.get(h.symbol).reduce((s, p) => s + q * p.amt * net(h, p.pay), 0);
+    const yr = toCur(yrRaw, cur);
+    const yieldPct = info?.price && yrRaw ? (yrRaw / (q * info.price)) * 100 : null; // verim hissenin kendi para biriminde
     return `<div class="panel card" data-sym="${esc(h.symbol)}">
       <button class="x" data-act="remove" title="Kaldır">×</button>
       <div class="hd"><span class="badge" style="background:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}</span>
@@ -288,9 +295,9 @@ function render() {
       <div class="row">
         <div><div class="k">Adet</div><div class="qty"><input value="${qtyFmt.format(q)}" inputmode="decimal" data-act="qty" aria-label="${esc(h.symbol)} adet">
           <svg viewBox="0 0 24 24" fill="none" stroke="${q > 0 ? 'var(--green)' : 'var(--faint)'}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.6 2.5L16 9.5"/></svg></div></div>
-        <div class="r"><div class="k">Alınan temettü</div><div class="v gold">${money(got, cur)}</div></div>
+        <div class="r"><div class="k">Alınan temettü</div><div class="v gold">${money(got, state.cur)}</div></div>
       </div>
-      <div class="ft"><span>Yıllık ${money(yr, cur)}${yieldPct ? ` · %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}</span>
+      <div class="ft"><span>Yıllık ${money(yr, state.cur)}${yieldPct ? ` · %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}</span>
         <label title="İlk alış tarihi">İlk alış <input type="date" value="${h.log[0]?.d || t}" max="${t}" data-act="since"></label></div>
       ${!info ? '<div class="err">Veri yok; Ayarlar → Verileri yenile.</div>'
         : !proj.get(h.symbol).length ? `<div class="err">${info.divs.length ? `Son temettü ${trDate(info.divs.at(-1).ex)}; son bir yılda dağıtım yok.` : 'Temettü geçmişi bulunamadı.'}</div>` : ''}
@@ -306,22 +313,29 @@ function render() {
 function renderMix(hs, proj, t) {
   const rows = hs.map((h) => {
     const q = qtyAt(h, t), c = curOf(h);
-    const v = proj.get(h.symbol).reduce((s, p) => s + toCur(q * p.amt * net(h, p.pay), c), 0);
-    return { sym: short(h.symbol), name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), v };
-  }).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
+    const raw = proj.get(h.symbol).reduce((s, p) => s + q * p.amt * net(h, p.pay), 0);
+    return { sym: short(h.symbol), name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), raw, cur: c, v: toCur(raw, c) };
+  }).filter((r) => r.raw > 0).sort((a, b) => b.v - a.v);
+  const box = document.getElementById('mix');
+  if (rows.some((r) => !Number.isFinite(r.v))) { // kur alınamadıysa yanlış oran göstermek yerine uyar
+    document.getElementById('mixTotal').textContent = '';
+    box.innerHTML = '<p class="note">USD/TRY kuru alınamadığı için dolar ve TL kalemler birlikte oranlanamıyor. Ayarlar → Verileri yenile.</p>';
+    return;
+  }
   const total = rows.reduce((s, r) => s + r.v, 0);
   document.getElementById('mixTotal').textContent = total ? `Yıllık ${money(total, state.cur)}` : '';
-  const box = document.getElementById('mix');
   if (!total) { box.innerHTML = '<p class="note">Temettü ödeyen bir kalem eklendiğinde dağılım burada görünür.</p>'; return; }
+  const mixed = rows.some((r) => r.cur !== state.cur);
+  const fx = cache.fx || cache.fxHist?.at(-1)?.[1];
   const pct = (v) => (v / total) * 100;
   const fmtPct = (v) => `%${pct(v).toFixed(1).replace('.', ',')}`;
   const top = rows[0];
   box.innerHTML = `<div class="mix-bar">${rows.map((r) => `<span style="width:${pct(r.v)}%;background:${r.color}" title="${esc(r.sym)} ${fmtPct(r.v)}"></span>`).join('')}</div>
     <div class="mix-list">${rows.map((r) => `<div class="mix-row">
       <i style="background:${r.color}"></i><b>${esc(r.sym)}</b><span class="mix-nm">${esc(r.name)}</span>
-      <span class="mix-v">${money(r.v, state.cur)}</span><span class="mix-p">${fmtPct(r.v)}</span>
+      <span class="mix-v">${money(r.v, state.cur)}${native(r.raw, r.cur) ? `<small>${native(r.raw, r.cur)}</small>` : ''}</span><span class="mix-p">${fmtPct(r.v)}</span>
       <span class="mix-track"><span style="width:${pct(r.v)}%;background:${r.color}"></span></span></div>`).join('')}</div>
-    <p class="note">${rows.length > 1 && pct(top.v) >= 40 ? `Gelirinin ${fmtPct(top.v)}'i tek bir kalemden (${esc(top.sym)}) geliyor. ` : ''}Mevcut adetlerle önümüzdeki 12 ayın beklenen net temettüsüne göre hesaplanır.</p>`;
+    <p class="note">${rows.length > 1 && pct(top.v) >= 40 ? `Gelirinin ${fmtPct(top.v)}'i tek bir kalemden (${esc(top.sym)}) geliyor. ` : ''}Mevcut adetlerle önümüzdeki 12 ayın beklenen net temettüsüne göre hesaplanır.${mixed && fx ? ` Oranlar için tüm tutarlar güncel kurla (1 $ = ${money(fx, 'TRY')}) ${state.cur === 'USD' ? 'dolara' : 'TL\'ye'} çevrilir; küçük yazı kalemin kendi para birimindeki tutarıdır.` : ''}</p>`;
 }
 
 // "12 ayın 4'ü / 6'sı / 12'si dolu"
@@ -367,7 +381,7 @@ function renderMonthly(hs) {
   const exp = Object.fromEntries(keys.map((k) => [k, 0]));
   for (const h of hs) {
     const c = curOf(h), q = qtyAt(h, t);
-    for (const r of received(h)) if (r.pay.slice(0, 7) in got) got[r.pay.slice(0, 7)] += toCur(r.value, c);
+    for (const r of received(h)) if (r.pay.slice(0, 7) in got) got[r.pay.slice(0, 7)] += convAt(r.value, c, r.pay);
     for (const p of projection(h)) { const k = monthKey(p.pay); if (k in exp && p.pay > t) exp[k] += toCur(q * p.amt * net(h, p.pay), c); }
   }
   drawChart('chart', {
@@ -380,7 +394,7 @@ function renderMonthly(hs) {
       ],
     },
   }, state.cur);
-  document.getElementById('chartNote').textContent = 'Koyu çubuk: ödemesi gerçekleşmiş temettü. Açık çubuk: mevcut adetlerle beklenen. Karışık para birimleri güncel USD/TRY kuruyla çevrilir.';
+  document.getElementById('chartNote').textContent = 'Koyu çubuk: ödemesi gerçekleşmiş temettü. Açık çubuk: mevcut adetlerle beklenen. Dolar ↔ TL çevirisi: alınanlar ödeme günündeki kurla, beklenenler güncel kurla.';
 }
 
 // Tarihe göre sıralı [[iso, değer], ...] dizisinde o güne kadarki son değer.

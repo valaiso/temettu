@@ -296,7 +296,8 @@ table.tax tr:last-child td { border-bottom: 0; }
 .mix-row:last-child { border-bottom: 0; }
 .mix-row i { width: 10px; height: 10px; border-radius: 50%; }
 .mix-nm { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mix-v { font-variant-numeric: tabular-nums; }
+.mix-v { font-variant-numeric: tabular-nums; text-align: right; }
+.mix-v small { display: block; font-size: 11px; color: var(--faint); }
 .mix-p { text-align: right; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
 .mix-track { grid-column: 2 / -1; height: 4px; border-radius: 999px; background: rgba(255,255,255,.05); overflow: hidden; }
 .mix-track span { display: block; height: 100%; border-radius: 999px; opacity: .85; }
