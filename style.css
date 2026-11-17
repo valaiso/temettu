@@ -181,3 +181,8 @@ table.tax tr:last-child td { border-bottom: 0; }
   .calendar { padding: 10px 12px; }
   .chart-wrap { height: 280px; }
 }
+
+/* Bulut eşitleme düğmesi */
+.btn.sync { white-space: nowrap; }
+.btn.sync.ok { color: var(--green); }
+.btn.sync.err { color: #f08a6c; }

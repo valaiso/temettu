@@ -22,7 +22,12 @@ const state = Object.assign(
 delete state.chart;
 delete state.tax; // eski sürümdeki elle girilen stopaj ayarı artık kullanılmıyor
 const cache = Object.assign({ data: {}, fx: null, fxHist: [], at: 0 }, store.get('temettu.cache', {}));
-const save = () => store.set('temettu.state', state);
+// dataChanged: hisse/adet değiştiyse true (buluta gönderilir); yalnızca görünüm tercihi değiştiyse false.
+function save(dataChanged = true) {
+  if (dataChanged) state.updatedAt = Date.now();
+  store.set('temettu.state', state);
+  if (dataChanged) schedulePush();
+}
 const saveCache = () => store.set('temettu.cache', cache);
 
 // ---------- Tarih yardımcıları (ISO YYYY-MM-DD, UTC hesap) ----------
@@ -478,7 +483,7 @@ function bindSeg(id, key) {
   document.getElementById(id).addEventListener('click', (e) => {
     const v = e.target.closest('button')?.dataset.v;
     if (!v) return;
-    state[key] = v; save(); render();
+    state[key] = v; save(false); render();
   });
 }
 bindSeg('filter', 'filter');
@@ -615,6 +620,113 @@ document.getElementById('import').addEventListener('change', async (e) => {
   } catch (err) { setStatus(`Yedek yüklenemedi: ${err.message}`); }
   e.target.value = '';
 });
+
+// ---------- Bulut eşitleme (Supabase, Analiz sitesindeki hesapla) ----------
+// Hisseler ve adet geçmişi kullanıcının temettu_state satırında tutulur; en son değişen cihaz kazanır.
+const SB_URL = 'https://jqmfvinbzgqyitqquzdc.supabase.co';
+const SB_KEY = 'sb_publishable_uw979hCwS6xyLRTexQX55A_ZqgWidDs'; // tarayıcı için herkese açık anahtar; veriyi RLS korur
+const sb = window.supabase?.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+let syncUser = null, pulled = false, pushTimer;
+const syncBtn = document.getElementById('syncBtn');
+
+function setSync(text, kind = '') {
+  syncBtn.textContent = text;
+  syncBtn.className = `btn sync ${kind}`;
+}
+
+function schedulePush() {
+  if (!sb || !syncUser || !pulled) return;
+  clearTimeout(pushTimer);
+  setSync('Kaydediliyor…');
+  pushTimer = setTimeout(push, 800);
+}
+
+async function push() {
+  if (!state.updatedAt) state.updatedAt = Date.now();
+  const { error } = await sb.from('temettu_state').upsert({
+    user_id: syncUser.id,
+    state: { holdings: state.holdings, updatedAt: state.updatedAt },
+    updated_at: new Date(state.updatedAt).toISOString(),
+  });
+  setSync(error ? 'Eşitlenemedi' : '☁ Eşitlendi', error ? 'err' : 'ok');
+  if (error) setStatus(`Bulut eşitleme hatası: ${error.message}`);
+}
+
+async function pull() {
+  if (!sb || !syncUser) return;
+  const { data, error } = await sb.from('temettu_state').select('state').maybeSingle();
+  if (error) { setSync('Eşitlenemedi', 'err'); setStatus(`Bulut eşitleme hatası: ${error.message}`); return; }
+  const remote = data?.state;
+  const firstTime = !pulled;
+  pulled = true;
+  const localT = state.updatedAt || 0, remoteT = remote?.updatedAt || 0;
+  let useRemote = remote && remoteT > localT;
+  // Bu cihaz daha önce hiç eşitlenmediyse ve iki tarafta da farklı veri varsa kullanıcıya sor.
+  if (firstTime && remote && !state.syncedOnce && state.holdings.length && remote.holdings?.length &&
+      JSON.stringify(remote.holdings) !== JSON.stringify(state.holdings)) {
+    useRemote = confirm(`Buluttaki portföy (${remote.holdings.length} kalem) ile bu cihazdaki (${state.holdings.length} kalem) farklı.\n\nTamam: buluttakini kullan\nİptal: bu cihazdakini buluta yükle`);
+    if (!useRemote) state.updatedAt = Date.now();
+  }
+  state.syncedOnce = true;
+  if (useRemote) {
+    state.holdings = remote.holdings || [];
+    state.updatedAt = remoteT;
+    store.set('temettu.state', state);
+    setSync('☁ Eşitlendi', 'ok');
+    render();
+    refresh();
+  } else if (!remote || localT > remoteT || state.updatedAt > remoteT) {
+    store.set('temettu.state', state);
+    await push();
+  } else {
+    store.set('temettu.state', state);
+    setSync('☁ Eşitlendi', 'ok');
+  }
+}
+
+function showLogin() {
+  const box = document.getElementById('loginForm');
+  box.hidden = false;
+  box.innerHTML = `<div class="who"><b>Giriş yap</b><div>Analiz sitesindeki hesabınla gir; portföyün telefon ve bilgisayar arasında otomatik eşitlenir.</div></div>
+    <label>E-POSTA<input id="lgEmail" type="email" autocomplete="username"></label>
+    <label>ŞİFRE<input id="lgPass" type="password" autocomplete="current-password"></label>
+    <button class="btn primary" id="lgOk">Giriş</button>
+    <button class="btn" id="lgCancel">Vazgeç</button>
+    <div class="err" id="lgErr" style="flex-basis:100%"></div>`;
+  const go = async () => {
+    const email = document.getElementById('lgEmail').value.trim();
+    const password = document.getElementById('lgPass').value;
+    if (!email || !password) return;
+    document.getElementById('lgErr').textContent = 'Giriş yapılıyor…';
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { document.getElementById('lgErr').textContent = `Giriş yapılamadı: ${error.message}`; return; }
+    box.hidden = true;
+  };
+  document.getElementById('lgOk').onclick = go;
+  document.getElementById('lgPass').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  document.getElementById('lgCancel').onclick = () => { box.hidden = true; };
+  document.getElementById('lgEmail').focus();
+}
+
+if (!sb) {
+  setSync('Eşitleme yok', 'err');
+} else {
+  setSync('Giriş yap');
+  syncBtn.addEventListener('click', async () => {
+    if (!syncUser) return showLogin();
+    if (confirm(`${syncUser.email} hesabından çıkış yapılsın mı? Veriler bu cihazda kalır.`)) await sb.auth.signOut();
+  });
+  sb.auth.onAuthStateChange((event, session) => {
+    const user = session?.user || null;
+    const changed = user?.id !== syncUser?.id;
+    syncUser = user;
+    if (!user) { pulled = false; setSync('Giriş yap'); return; }
+    syncBtn.title = user.email;
+    if (changed) setTimeout(pull, 0); // auth olayının içinden doğrudan sorgu atılmaz
+  });
+  // Sekmeye geri dönüldüğünde diğer cihazdaki değişiklikleri al.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && syncUser) pull(); });
+}
 
 // İlk çizim: önce kayıtlı veriyle, sonra güncel veriyle.
 render();
