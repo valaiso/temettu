@@ -51,7 +51,13 @@ function money(v, cur, digits = 2) {
 const qtyFmt = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 6 });
 const short = (sym) => sym.replace(/\.IS$/, '');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const parseNum = (s) => Number(String(s).trim().replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+// "2,5" → 2,5 · "1.500" → 1500 · "1.234,5" → 1234,5 · "0.125" ve "2.5" → ondalık (kesirli ABD hisseleri için).
+function parseNum(s) {
+  let v = String(s).trim().replace(/\s/g, '');
+  if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.');
+  else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, '');
+  return v ? Number(v) : NaN;
+}
 
 function toCur(value, from, to = state.cur) {
   if (from === to) return value;
@@ -132,12 +138,24 @@ function events(h) {
     const pay = d.pay || (info.nextPay && info.nextEx === d.ex ? info.nextPay : null);
     return { ex: d.ex, amt: d.amt, pay: pay || addDays(d.ex, info.lag), payKnown: !!pay };
   });
-  // Açıklanmış ama grafikte henüz görünmeyen bir sonraki temettü (tutar = son tutar, tahmini).
+  markSpecials(list);
+  // Açıklanmış ama grafikte henüz görünmeyen bir sonraki temettü (tutar = son olağan tutar, tahmini).
   const last = list.at(-1);
   if (info.nextEx && last && info.nextEx > last.ex && Date.parse(info.nextEx) - Date.parse(last.ex) > 20 * DAY) {
-    list.push({ ex: info.nextEx, amt: last.amt, pay: info.nextPay || addDays(info.nextEx, info.lag), payKnown: !!info.nextPay, estAmt: true });
+    const amt = ([...list].reverse().find((e) => !e.special) || last).amt;
+    list.push({ ex: info.nextEx, amt, pay: info.nextPay || addDays(info.nextEx, info.lag), payKnown: !!info.nextPay, estAmt: true });
   }
   return list;
+}
+
+// Tek seferlik (ekstra) temettü: düzenli ödeyen bir kalemde, çevresindeki ödemelerin medyanının 2,5 katını aşan tutar
+// (ör. COST'un özel temettüleri). Yılda 1-2 kez ödeyenlerde (çoğu BIST hissesi) tutar zaten değişken olduğundan bakılmaz.
+function markSpecials(list) {
+  for (const e of list) {
+    const t = Date.parse(e.ex);
+    const around = list.filter((x) => Math.abs(Date.parse(x.ex) - t) <= 400 * DAY).map((x) => x.amt).sort((a, b) => a - b);
+    if (around.length >= 6) e.special = e.amt > around[around.length >> 1] * 2.5;
+  }
 }
 
 // Ödemesi gerçekleşmiş ve ex-tarihinden önce elde tutulan hisseler için alınan net temettüler.
@@ -153,38 +171,67 @@ function received(h, until = today()) {
 // Alınan temettülerin seçili para birimindeki toplamı; her ödeme kendi günündeki USD/TRY kuruyla çevrilir.
 const receivedIn = (h, from = '0000') => received(h).reduce((s, r) => (r.pay >= from ? s + convAt(r.value, curOf(h), r.pay) : s), 0);
 
-// Önümüzdeki 12 ay: son bir yıllık temettü döngüsü ileri taşınır.
+// Düzenli (aylık/çeyreklik) ödeyen ABD kalemlerinde gelecek ödemeler en son tutarla tahmin edilir (temettü artışları
+// yansır). BIST'te tutarlar yıldan yıla çok değiştiği ve taksitler eşit olmadığı için geçen yılın tutarları kullanılır.
+const isRegular = (h, n) => h.market !== 'TR' && n >= 3;
+
+// BIST'te yılda kaç ödeme yapıldığı (son 3 takvim yılının ortancası). Ödeme günleri yıldan yıla birkaç hafta
+// kaydığından 350 günlük pencere bazen fazladan bir ödeme yakalar; bu sayı onu engeller.
+function paysPerYear(evs, iso) {
+  const y = Number(iso.slice(0, 4));
+  const key = `ppy${y}`;
+  if (evs[key] !== undefined) return evs[key];
+  const counts = [y - 3, y - 2, y - 1].map((yr) => evs.filter((e) => !e.special && e.ex.startsWith(String(yr))).length)
+    .filter((n) => n > 0).sort((a, b) => a - b);
+  return (evs[key] = counts.length ? counts[counts.length >> 1] : 0);
+}
+// Son bir yıllık döngünün olağan temettüleri (iso tarihine kadar ex-tarihi gelmiş olanlar).
+function lastCycle(h, evs, iso, yearOf = iso) {
+  const normal = evs.filter((e) => !e.special && e.ex <= iso);
+  const last = normal.at(-1);
+  if (!last) return [];
+  const window = normal.filter((e) => e.ex > addDays(last.ex, -350));
+  const k = h.market === 'TR' ? paysPerYear(evs, yearOf) : 0;
+  return k ? normal.slice(-k).filter((e) => e.ex > addDays(last.ex, -540)) : window;
+}
+
+// Önümüzdeki 12 ay: son bir yıllık temettü döngüsü ileri taşınır. Tek seferlik temettüler yalnızca açıklanmışsa gösterilir,
+// gelecek yıla kopyalanmaz. Ex-tarihi geçmiş ama henüz ödenmemiş temettüde ex-tarihinden önceki adet geçerlidir.
+// Dönen her kayıtta cash = adet × hisse başı brüt tutar (aynı aya düşen iki ödeme toplanır).
 function projection(h) {
   const evs = events(h);
   if (!evs.length) return [];
   const t = today();
   const last = evs.at(-1);
   if (last.ex < addDays(t, -400)) return []; // bir yılı aşkın süredir temettü yok
-  const cycle = evs.filter((e) => e.ex > addDays(last.ex, -350));
-  const regular = cycle.length >= 3;
-  const latestReal = [...cycle].reverse().find((e) => !e.estAmt) || last;
+  const normal = lastCycle(h, evs, '9999-12-31', t); // açıklanmış gelecek temettüler dahil
+  const cycle = [...normal, ...evs.filter((e) => e.special && e.pay > t)];
+  const regular = isRegular(h, normal.length);
+  const latestReal = [...normal].reverse().find((e) => !e.estAmt) || normal.at(-1);
+  const qNow = qtyAt(h, t);
   const byMonth = new Map();
   for (const e of cycle) {
     let pay = e.pay, shifted = false;
     while (pay <= t) { pay = addYears(pay, 1); shifted = true; }
-    const amt = shifted && regular ? latestReal.amt : e.amt;
-    byMonth.set(Number(pay.slice(5, 7)), { pay, ex: shifted ? null : e.ex, amt, est: shifted || e.estAmt || !e.payKnown });
+    if (shifted && e.special) continue;
+    const amt = shifted && regular && latestReal ? latestReal.amt : e.amt;
+    const q = !shifted && e.ex <= t ? qtyAt(h, addDays(e.ex, -1)) : qNow;
+    const m = Number(pay.slice(5, 7));
+    const rec = { pay, ex: shifted ? null : e.ex, amt, q, cash: q * amt, est: shifted || !!e.estAmt || !e.payKnown, special: !!e.special };
+    const prev = byMonth.get(m);
+    if (prev) Object.assign(prev, { amt: prev.amt + amt, cash: prev.cash + rec.cash, est: prev.est || rec.est, special: prev.special || rec.special });
+    else byMonth.set(m, rec);
   }
   return [...byMonth.values()].sort((a, b) => a.pay.localeCompare(b.pay));
 }
 
-// O gün bilinen son bir yıllık temettü döngüsünden hisse başı yıllık temettü (projection ile aynı mantık,
+// O gün bilinen son bir yıllık temettü döngüsünden hisse başı yıllık olağan temettü (projection ile aynı mantık,
 // böylece grafiğin bugünkü değeri "Yıllık beklenen" ile örtüşür ve ex-tarihi kaymaları sıçrama yapmaz).
-function annualPerShare(evs, iso) {
-  let i = evs.length - 1;
-  while (i >= 0 && evs[i].ex > iso) i--;
-  if (i < 0) return 0;
-  const last = evs[i];
-  if (last.ex < addDays(iso, -400)) return 0;
-  const from = addDays(last.ex, -350);
-  let n = 0, s = 0;
-  for (let j = i; j >= 0 && evs[j].ex > from; j--) { n++; s += evs[j].amt; }
-  return n >= 3 ? last.amt * n : s;
+function annualPerShare(evs, iso, h) {
+  const cyc = lastCycle(h, evs, iso);
+  const last = cyc.at(-1);
+  if (!last || last.ex < addDays(iso, -400)) return 0;
+  return isRegular(h, cyc.length) ? last.amt * cyc.length : cyc.reduce((s, e) => s + e.amt, 0);
 }
 
 const visible = () => state.holdings.filter((h) => state.filter === 'ALL' || h.market === state.filter);
@@ -222,11 +269,11 @@ function render() {
       const p = byM.get(m);
       const cls = `cell${m === nowMonth ? ' now' : ''}`;
       if (!p) { html += `<div class="${cls}"><span class="tiny"></span></div>`; continue; }
-      const raw = q * p.amt * net(h, p.pay);
+      const raw = p.cash * net(h, p.pay);
       const val = toCur(raw, cur); // takvimdeki her tutar seçili para biriminde
       totals[m] += val;
       byMonth[m].push({ sym: short(h.symbol), color, val, raw, cur, est: p.est, pay: p.pay });
-      const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}<br>Net (${qtyFmt.format(q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, state.cur)}</b>${native(raw, cur) ? ` (${native(raw, cur)})` : ''}${p.est ? '<br><i>tahmini</i>' : ''}`;
+      const tip = `<b>${esc(short(h.symbol))}</b> · ${MONTHS[m - 1]}<br>Ödeme: ${p.est ? '~' : ''}${trDate(p.pay)}${p.ex ? `<br>Ex-tarih: ${trDate(p.ex)}` : ''}<br>Hisse başı: ${money(p.amt, cur, 4)}${p.special ? ' (tek seferlik ekstra temettü dahil)' : ''}<br>Net (${qtyFmt.format(p.q)} adet, %${taxRate(h, p.pay)} stopaj): <b>${money(val, state.cur)}</b>${native(raw, cur) ? ` (${native(raw, cur)})` : ''}${p.est ? '<br><i>tahmini</i>' : ''}`;
       html += `<div class="${cls}"><span class="dot" style="background:${color}" data-tip="${esc(tip)}"></span><span class="amt">${money(val, state.cur)}</span></div>`;
     }
   }
@@ -273,7 +320,7 @@ function render() {
   let annual = 0, thisYear = 0, total = 0;
   for (const h of hs) {
     const cur = curOf(h), q = qtyAt(h, t);
-    for (const p of proj.get(h.symbol)) annual += toCur(q * p.amt * net(h, p.pay), cur);
+    for (const p of proj.get(h.symbol)) annual += toCur(p.cash * net(h, p.pay), cur);
     total += receivedIn(h);
     thisYear += receivedIn(h, yearStart);
   }
@@ -285,19 +332,19 @@ function render() {
   document.getElementById('cards').innerHTML = hs.map((h) => {
     const cur = curOf(h), info = cache.data[h.symbol], q = qtyAt(h, t);
     const got = receivedIn(h);
-    const yrRaw = proj.get(h.symbol).reduce((s, p) => s + q * p.amt * net(h, p.pay), 0);
+    const yrRaw = proj.get(h.symbol).reduce((s, p) => s + p.cash * net(h, p.pay), 0);
     const yr = toCur(yrRaw, cur);
-    const yieldPct = info?.price && yrRaw ? (yrRaw / (q * info.price)) * 100 : null; // verim hissenin kendi para biriminde
+    const yieldPct = info?.price && yrRaw && q > 0 ? (yrRaw / (q * info.price)) * 100 : null; // stopaj sonrası verim, kendi para biriminde
     return `<div class="panel card" data-sym="${esc(h.symbol)}">
       <button class="x" data-act="remove" title="Kaldır">×</button>
-      <div class="hd"><span class="badge" style="background:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}</span>
+      <div class="hd"><span class="badge${short(h.symbol).length >= 5 ? ' long' : ''}" style="background:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}</span>
         <div style="min-width:0"><div class="tk">${esc(short(h.symbol))}</div><div class="nm">${esc(info?.name || h.name || '')}</div></div></div>
       <div class="row">
         <div><div class="k">Adet</div><div class="qty"><input value="${qtyFmt.format(q)}" inputmode="decimal" data-act="qty" aria-label="${esc(h.symbol)} adet">
           <svg viewBox="0 0 24 24" fill="none" stroke="${q > 0 ? 'var(--green)' : 'var(--faint)'}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.6 2.5L16 9.5"/></svg></div></div>
         <div class="r"><div class="k">Alınan temettü</div><div class="v gold">${money(got, state.cur)}</div></div>
       </div>
-      <div class="ft"><span>Yıllık ${money(yr, state.cur)}${yieldPct ? ` · %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}</span>
+      <div class="ft"><span>Yıllık ${money(yr, state.cur)}${yieldPct ? ` · net verim %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}</span>
         <label title="İlk alış tarihi">İlk alış <input type="date" value="${h.log[0]?.d || t}" max="${t}" data-act="since"></label></div>
       ${!info ? '<div class="err">Veri yok; Ayarlar → Verileri yenile.</div>'
         : !proj.get(h.symbol).length ? `<div class="err">${info.divs.length ? `Son temettü ${trDate(info.divs.at(-1).ex)}; son bir yılda dağıtım yok.` : 'Temettü geçmişi bulunamadı.'}</div>` : ''}
@@ -313,7 +360,7 @@ function render() {
 function renderMix(hs, proj, t) {
   const rows = hs.map((h) => {
     const q = qtyAt(h, t), c = curOf(h);
-    const raw = proj.get(h.symbol).reduce((s, p) => s + q * p.amt * net(h, p.pay), 0);
+    const raw = proj.get(h.symbol).reduce((s, p) => s + p.cash * net(h, p.pay), 0);
     return { sym: short(h.symbol), name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), raw, cur: c, v: toCur(raw, c) };
   }).filter((r) => r.raw > 0).sort((a, b) => b.v - a.v);
   const box = document.getElementById('mix');
@@ -382,7 +429,7 @@ function renderMonthly(hs) {
   for (const h of hs) {
     const c = curOf(h), q = qtyAt(h, t);
     for (const r of received(h)) if (r.pay.slice(0, 7) in got) got[r.pay.slice(0, 7)] += convAt(r.value, c, r.pay);
-    for (const p of projection(h)) { const k = monthKey(p.pay); if (k in exp && p.pay > t) exp[k] += toCur(q * p.amt * net(h, p.pay), c); }
+    for (const p of projection(h)) { const k = monthKey(p.pay); if (k in exp && p.pay > t) exp[k] += toCur(p.cash * net(h, p.pay), c); }
   }
   drawChart('chart', {
     type: 'bar',
@@ -451,7 +498,7 @@ function growthSeries(hs) {
       const info = cache.data[h.symbol], c = curOf(h);
       const p = lastAt(info?.px, d);
       if (p) value += convAt(q * p, c, d);
-      income += convAt(q * annualPerShare(evsBy.get(h.symbol), d) * net(h, d), c, d);
+      income += convAt(q * annualPerShare(evsBy.get(h.symbol), d, h) * net(h, d), c, d);
     }
     out.push({ d, invested, value, divs, income });
   }
@@ -644,9 +691,9 @@ cards.addEventListener('change', (e) => {
     const q = parseNum(e.target.value);
     if (q >= 0) setQty(h, q);
   } else if (e.target.dataset.act === 'since' && e.target.value) {
-    // İlk alış tarihini taşı: ondan önceki kayıtlar silinir.
+    // İlk alış tarihini taşı: ondan önceki kayıtlar silinir, o günkü adet korunur.
     const d = e.target.value;
-    const q0 = h.log[0].q;
+    const q0 = d < h.log[0].d ? h.log[0].q : qtyAt(h, d);
     h.log = h.log.filter((x) => x.d > d);
     h.log.unshift({ d, q: q0 });
   }

@@ -106,7 +106,8 @@ h1 { font-size: clamp(28px, 4.2vw, 50px); font-weight: 800; margin: 4px 0 6px; l
 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 28px 0; }
 .card { padding: 16px 20px 18px; position: relative; }
 .card .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.badge { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #10131a; flex: none; }
+.badge { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #10131a; flex: none; overflow: hidden; letter-spacing: -.02em; }
+.badge.long { font-size: 9px; }
 .card .tk { font-weight: 800; font-size: 20px; }
 .card .nm { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .card .x { position: absolute; top: 10px; right: 12px; border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 18px; }
@@ -251,6 +252,7 @@ table.tax tr:last-child td { border-bottom: 0; }
   .card { padding: 12px 14px 12px; border-radius: 12px; }
   .card .hd { margin-bottom: 8px; }
   .badge { width: 32px; height: 32px; font-size: 9.5px; }
+  .badge.long { font-size: 7.5px; }
   .card .tk { font-size: 17px; }
   .card .v, .qty input { font-size: 18px; }
   .qty input { width: 84px; }
