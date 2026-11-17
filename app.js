@@ -885,4 +885,19 @@ if (!sb) {
 // sekmeye her dönüşte 6 saatten eski veriler yenilenir.
 render();
 refresh();
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refresh(); checkVersion(); } });
+
+// Yeni sürüm yayınlandıysa (telefondaki ana ekran uygulaması eski sayfayı önbellekte tutabilir) sayfayı bir kez yenile.
+async function checkVersion() {
+  const mine = document.querySelector('meta[name="app-version"]')?.content;
+  if (!mine || ['localhost', '127.0.0.1'].includes(location.hostname)) return;
+  try {
+    const html = await (await fetch(`${location.pathname}?_=${Date.now()}`, { cache: 'no-store' })).text();
+    const live = html.match(/name="app-version" content="([^"]+)"/)?.[1];
+    if (live && live !== mine && sessionStorage.getItem('temettu.reloadedFor') !== live) {
+      sessionStorage.setItem('temettu.reloadedFor', live);
+      location.reload();
+    }
+  } catch { /* çevrimdışı */ }
+}
+checkVersion();
