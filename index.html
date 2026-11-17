@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Her yayında bu sürüm (ve aşağıdaki ?v= değerleri) artırılır; açık sayfa yeni sürümü görünce kendini yeniler. -->
-  <meta name="app-version" content="2026-11-17.5">
-  <link rel="stylesheet" href="style.css?v=2026-11-17.5">
+  <meta name="app-version" content="2026-11-17.6">
+  <link rel="stylesheet" href="style.css?v=2026-11-17.6">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
 </head>
@@ -87,6 +87,15 @@
       <div id="mix"></div>
     </section>
 
+    <section class="panel mixbox pfbox">
+      <div class="chart-head"><h2>Temettü portföyü</h2><span class="mix-total" id="pfTotal"></span></div>
+      <div class="pf">
+        <div class="pf-chart"><canvas id="pfChart" aria-label="Portföy değer dağılımı"></canvas><div class="pf-center" id="pfCenter"></div></div>
+        <div class="pf-list" id="pfList"></div>
+      </div>
+      <p class="note" id="pfNote"></p>
+    </section>
+
     <section class="panel taxbox" id="taxbox"></section>
 
     <details class="panel settings">
@@ -104,6 +113,6 @@
     </details>
   </main>
   <div id="tip" class="tip" hidden></div>
-  <script src="app.js?v=2026-11-17.5"></script>
+  <script src="app.js?v=2026-11-17.6"></script>
 </body>
 </html>

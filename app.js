@@ -366,6 +366,7 @@ function render() {
 
   renderChart(hs);
   renderMix(hs, proj, t);
+  renderPortfolio(hs, proj, t);
   renderTax();
 }
 
@@ -396,6 +397,51 @@ function renderMix(hs, proj, t) {
       <span class="mix-v">${money(r.v, state.cur)}${native(r.raw, r.cur) ? `<small>${native(r.raw, r.cur)}</small>` : ''}</span><span class="mix-p">${fmtPct(r.v)}</span>
       <span class="mix-track"><span style="width:${pct(r.v)}%;background:${r.color}"></span></span></div>`).join('')}</div>
     <p class="note">${rows.length > 1 && pct(top.v) >= 40 ? `Gelirinin ${fmtPct(top.v)}'i tek bir kalemden (${esc(top.sym)}) geliyor. ` : ''}Mevcut adetlerle önümüzdeki 12 ayın beklenen net temettüsüne göre hesaplanır.${mixed && fx ? ` Oranlar için tüm tutarlar güncel kurla (1 $ = ${money(fx, 'TRY')}) ${state.cur === 'USD' ? 'dolara' : 'TL\'ye'} çevrilir; küçük yazı kalemin kendi para birimindeki tutarıdır.` : ''}</p>`;
+}
+
+// Portföyün piyasa değerine göre dağılımı (halka grafik) ve her kalemin değer payı ile gelir payının karşılaştırması.
+function renderPortfolio(hs, proj, t) {
+  const rows = hs.map((h) => {
+    const q = qtyAt(h, t), c = curOf(h), info = cache.data[h.symbol];
+    const price = info?.price || info?.px?.at(-1)?.[1] || 0;
+    const income = proj.get(h.symbol).reduce((s, p) => s + p.cash * net(h, p.pay), 0);
+    return { full: h.symbol, sym: short(h.symbol), color: colorOf(h), v: toCur(q * price, c), inc: toCur(income, c) };
+  }).filter((r) => r.v > 0 || Number.isNaN(r.v)).sort((a, b) => b.v - a.v);
+  const totalEl = document.getElementById('pfTotal'), list = document.getElementById('pfList'), note = document.getElementById('pfNote');
+  const center = document.getElementById('pfCenter');
+  const clear = (msg) => {
+    totalEl.textContent = ''; center.innerHTML = ''; list.innerHTML = ''; note.textContent = msg;
+    charts.pfChart?.destroy(); delete charts.pfChart;
+  };
+  if (rows.some((r) => !Number.isFinite(r.v))) return clear('USD/TRY kuru alınamadığı için dolar ve TL kalemler birlikte gösterilemiyor. Ayarlar → Verileri yenile.');
+  const total = rows.reduce((s, r) => s + r.v, 0), incTotal = rows.reduce((s, r) => s + r.inc, 0);
+  if (!total) return clear('Adet girilmiş bir kalem eklendiğinde portföy dağılımı burada görünür.');
+  const pct = (v, d) => (d > 0 ? (v / d) * 100 : 0);
+  const fmt = (p) => `%${p.toFixed(1).replace('.', ',')}`;
+  totalEl.textContent = incTotal > 0 ? `Net verim ${fmt(pct(incTotal, total))}` : '';
+  totalEl.title = 'Yıllık beklenen net temettü ÷ portföy değeri';
+  center.innerHTML = `<b>${money(total, state.cur, 0)}</b><span>${rows.length} kalem</span>`;
+  list.innerHTML = `<div class="pf-row pf-h"><span></span><span></span><span>Değer</span><span>Portföy</span><span>Gelir</span></div>` +
+    rows.map((r) => {
+      const vp = pct(r.v, total), ip = pct(r.inc, incTotal);
+      return `<div class="pf-row">${avatar(r.full, r.color)}<b>${esc(r.sym)}</b><span class="pf-v">${money(r.v, state.cur, r.v >= 1000 ? 0 : 2)}</span>
+        <span class="pf-p">${fmt(vp)}</span><span class="pf-i ${!r.inc ? 'zero' : ip >= vp ? 'hi' : ''}">${r.inc ? fmt(ip) : '—'}</span></div>`;
+    }).join('');
+  note.textContent = 'Değer: bugünkü adet × son fiyat, güncel kurla çevrilir. "Gelir" sütunu kalemin yıllık beklenen temettüdeki payıdır; ' +
+    'portföy payından yüksekse (altın renk) o kalem değerine göre daha çok temettü getiriyor, düşükse daha az.';
+  if (typeof Chart === 'undefined') return;
+  charts.pfChart?.destroy();
+  charts.pfChart = new Chart(document.getElementById('pfChart'), {
+    type: 'doughnut',
+    data: { labels: rows.map((r) => r.sym), datasets: [{ data: rows.map((r) => r.v), backgroundColor: rows.map((r) => r.color), borderColor: '#151b27', borderWidth: 2, hoverOffset: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, cutout: '66%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => ` ${money(c.parsed, state.cur)} · ${fmt(pct(c.parsed, total))}` } },
+      },
+    },
+  });
 }
 
 // "12 ayın 4'ü / 6'sı / 12'si dolu"
@@ -641,17 +687,18 @@ function renderTax() {
       : gross > lim ? `<span class="down">Sınır aşıldı · ${year + 1} Mart'ta beyan gerekir</span>`
       : `<span class="up">Sınırın altında · beyan gerekmez (kalan ${money(lim - gross, 'TRY', 0)})</span>`;
     return `<tr><td data-l="Gelir yılı"><b>${year}</b>${year === y ? ' <span class="muted">(devam ediyor)</span>' : ''}</td>
-      <td data-l="Beyan sınırı">${limit ? money(limit, 'TRY', 0) : `${money(lim, 'TRY', 0)} <span class="muted">(${year} tutarı henüz açıklanmadı, ${latest} tutarı)</span>`}</td>
-      <td data-l="Brüt ABD temettün">${money(gross, 'TRY')}</td><td data-l="ABD'de kesilen">${money(withheld, 'TRY')}</td><td data-l="Durum">${status}</td></tr>`;
+      <td data-l="Yıllık beyan sınırı">${limit ? money(limit, 'TRY', 0) : `${money(lim, 'TRY', 0)} <span class="muted">(${year} tutarı henüz açıklanmadı, ${latest} tutarı)</span>`}</td>
+      <td data-l="Yıl içi brüt ABD temettün">${money(gross, 'TRY')}</td><td data-l="ABD'de kesilen">${money(withheld, 'TRY')}</td><td data-l="Durum">${status}</td></tr>`;
   }).join('');
-  box.innerHTML = `<h2>ABD hisse / ETF temettüsü: vergi beyan sınırı</h2>
-    <p class="note big">ABD temettüleri Türkiye'de stopaja tabi olmadığı için <b>tevkifata tabi olmayan menkul sermaye iradı</b> sayılır. Bir yılda elde edilen
+  box.innerHTML = `<h2>ABD hisse / ETF temettüsü: yıllık vergi beyan sınırı</h2>
+    <p class="note big"><b>Sınır yıllıktır:</b> bir takvim yılında (1 Ocak – 31 Aralık) alınan tüm ABD temettülerinin toplamına bakılır, aylık değil.
+      ABD temettüleri Türkiye'de stopaja tabi olmadığı için <b>tevkifata tabi olmayan menkul sermaye iradı</b> sayılır. Bir yılda elde edilen
       brüt tutarın TL karşılığı (diğer stopajsız menkul ve gayrimenkul sermaye iratlarıyla birlikte) beyan sınırını aşarsa, tamamı ertesi yılın Mart ayında
       yıllık gelir vergisi beyannamesiyle beyan edilir. ABD'de kesilen %20 vergi, Türkiye'de hesaplanan vergiden mahsup edilir. Yurt dışı temettüde %50 istisna uygulanmaz.</p>
     <div class="tablewrap"><table class="tax">
-      <thead><tr><th>Gelir yılı</th><th>Beyan sınırı</th><th>Brüt ABD temettün</th><th>ABD'de kesilen</th><th>Durum</th></tr></thead>
+      <thead><tr><th>Gelir yılı</th><th>Yıllık beyan sınırı</th><th>Yıl içi brüt ABD temettün</th><th>ABD'de kesilen</th><th>Durum</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <p class="note">Beyan sınırları: ${known.map((k) => `${k}: ${money(DECLARE_LIMITS[k], 'TRY', 0)}`).join(' · ')} (GVK 86/1-d). Yeni yılın tutarı her yıl Aralık sonunda açıklanır.
+    <p class="note">Yıllık beyan sınırları: ${known.map((k) => `${k}: ${money(DECLARE_LIMITS[k], 'TRY', 0)}`).join(' · ')} (GVK 86/1-d). Yeni yılın tutarı her yıl Aralık sonunda açıklanır.
       TL karşılıkları ödeme günündeki USD/TRY kuruyla yaklaşık hesaplanır; beyanda TCMB döviz alış kuru kullanılır. Bu bölüm bilgilendirme amaçlıdır; kesin durum için mali müşavirinize danışın.</p>`;
 }
 

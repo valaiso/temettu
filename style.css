@@ -118,6 +118,30 @@ h1 { font-size: clamp(28px, 4.2vw, 50px); font-weight: 800; margin: 4px 0 6px; l
 }
 .av img.lg, .badge img.lg { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .stale { color: #f0a35e; font-weight: 600; }
+
+/* Temettü portföyü: halka grafik + değer/gelir payı listesi */
+.pf { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: center; margin-top: 8px; }
+.pf-chart { position: relative; height: 240px; }
+.pf-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.pf-center b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pf-center span { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.pf-row {
+  display: grid; grid-template-columns: 22px 64px minmax(0, 1fr) 64px 64px; align-items: center; column-gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.pf-row:last-child { border-bottom: 0; }
+.pf-row > span:nth-child(n+3) { text-align: right; }
+.pf-h { color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding-top: 0; }
+.pf-p { font-weight: 800; }
+.pf-i { color: var(--muted); }
+.pf-i.hi { color: var(--gold); font-weight: 700; }
+.pf-i.zero { color: var(--faint); }
+@media (max-width: 640px) {
+  .pf { grid-template-columns: 1fr; gap: 10px; }
+  .pf-chart { height: 200px; max-width: 220px; width: 100%; margin: 0 auto; }
+  .pf-row { grid-template-columns: 22px 52px minmax(0, 1fr) 52px 52px; column-gap: 8px; font-size: 13px; }
+  .pf-h { font-size: 10px; letter-spacing: 0; }
+}
 .cal .name .av { width: 26px; height: 26px; font-size: 11px; }
 img.lg.alt { object-fit: contain; padding: 9%; background: #fff; } /* FMP logoları şeffaf, beyaz zemin ister */
 .card .tk { font-weight: 800; font-size: 20px; }
