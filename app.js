@@ -298,7 +298,30 @@ function render() {
   }).join('');
 
   renderChart(hs);
+  renderMix(hs, proj, t);
   renderTax();
+}
+
+// Yıllık beklenen net temettü gelirinin hisselere dağılımı: tek yatay çubuk + sıralı liste.
+function renderMix(hs, proj, t) {
+  const rows = hs.map((h) => {
+    const q = qtyAt(h, t), c = curOf(h);
+    const v = proj.get(h.symbol).reduce((s, p) => s + toCur(q * p.amt * net(h, p.pay), c), 0);
+    return { sym: short(h.symbol), name: cache.data[h.symbol]?.name || h.name || '', color: colorOf(h), v };
+  }).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
+  const total = rows.reduce((s, r) => s + r.v, 0);
+  document.getElementById('mixTotal').textContent = total ? `Yıllık ${money(total, state.cur)}` : '';
+  const box = document.getElementById('mix');
+  if (!total) { box.innerHTML = '<p class="note">Temettü ödeyen bir kalem eklendiğinde dağılım burada görünür.</p>'; return; }
+  const pct = (v) => (v / total) * 100;
+  const fmtPct = (v) => `%${pct(v).toFixed(1).replace('.', ',')}`;
+  const top = rows[0];
+  box.innerHTML = `<div class="mix-bar">${rows.map((r) => `<span style="width:${pct(r.v)}%;background:${r.color}" title="${esc(r.sym)} ${fmtPct(r.v)}"></span>`).join('')}</div>
+    <div class="mix-list">${rows.map((r) => `<div class="mix-row">
+      <i style="background:${r.color}"></i><b>${esc(r.sym)}</b><span class="mix-nm">${esc(r.name)}</span>
+      <span class="mix-v">${money(r.v, state.cur)}</span><span class="mix-p">${fmtPct(r.v)}</span>
+      <span class="mix-track"><span style="width:${pct(r.v)}%;background:${r.color}"></span></span></div>`).join('')}</div>
+    <p class="note">${rows.length > 1 && pct(top.v) >= 40 ? `Gelirinin ${fmtPct(top.v)}'i tek bir kalemden (${esc(top.sym)}) geliyor. ` : ''}Mevcut adetlerle önümüzdeki 12 ayın beklenen net temettüsüne göre hesaplanır.</p>`;
 }
 
 // "12 ayın 4'ü / 6'sı / 12'si dolu"
