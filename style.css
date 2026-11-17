@@ -208,23 +208,43 @@ table.tax tr:last-child td { border-bottom: 0; }
   .stat .k { font-size: 9.5px; letter-spacing: .06em; }
   .stat .v { font-size: 18px; margin-top: 4px; }
 
-  /* Takvim: tablo yerine ay ay liste */
-  .calendar { padding: 4px 12px; overflow: visible; }
+  /* Takvim: iki yarıyıl, her ay bir sütun */
+  .calendar { padding: 0; overflow: hidden; background: transparent; border: 0; }
   .cal { display: none; }
-  .calm { display: block; }
-  .calm-row { padding: 10px 2px; border-bottom: 1px solid var(--line); }
-  .calm-row:last-child { border-bottom: 0; }
-  .calm-row.now .calm-m { color: var(--gold); }
-  .calm-row.empty { padding: 7px 2px; opacity: .45; }
-  .calm-head { display: flex; justify-content: space-between; align-items: baseline; }
-  .calm-m { font-weight: 800; font-size: 15px; }
-  .calm-t { font-weight: 700; font-size: 14px; color: var(--gold); font-variant-numeric: tabular-nums; }
-  .calm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
-  .chipx { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 8px; font-size: 12.5px; font-weight: 700; }
-  .chipx i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .chipx b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .chipx.est { border-style: dashed; }
-  .calm-empty { color: var(--muted); padding: 24px 4px; text-align: center; }
+  .calm { display: flex; flex-direction: column; gap: 10px; }
+  .hy { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 12px 8px 8px; }
+  .hy-top { display: flex; justify-content: space-between; align-items: baseline; padding: 0 6px 10px; }
+  .hy-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+  .hy-sum { font-size: 15px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .hy { padding-left: 6px; padding-right: 6px; }
+  .hy-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; }
+  .hy-col {
+    display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 150px; padding: 8px 2px 7px;
+    background: rgba(255,255,255,.035); border: 1px solid transparent; border-radius: 12px; cursor: pointer; text-align: center;
+  }
+  .hy-col.empty { background: rgba(255,255,255,.015); }
+  .hy-col.sel { border-color: rgba(242,193,78,.45); background: rgba(242,193,78,.06); }
+  .hy-m { align-self: center; font-size: 13px; font-weight: 800; padding: 3px 7px; border-radius: 999px; color: #d6d8dd; }
+  .hy-col.now .hy-m { background: var(--gold); color: #1a1405; }
+  .hy-col.empty .hy-m { color: var(--faint); }
+  .hy-evs { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .ev {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 4px 2px 4px 4px; border-radius: 6px;
+    background: color-mix(in srgb, var(--c) 16%, transparent); border-left: 2px solid var(--c); text-align: left; overflow: hidden;
+  }
+  .ev b { font-size: 10px; font-weight: 800; letter-spacing: -.02em; color: var(--c); line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev small { font-size: 9px; letter-spacing: -.02em; color: #c9ccd3; font-variant-numeric: tabular-nums; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev.est { border-left-style: dashed; }
+  .ev-none { align-self: center; margin-top: 24px; width: 4px; height: 4px; border-radius: 50%; background: #3a3f49; }
+  .hy-t { font-size: 10.5px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; min-height: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hy-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 12px 14px; }
+  .hy-dh { display: flex; justify-content: space-between; align-items: baseline; font-size: 18px; font-weight: 800; }
+  .hy-dh b { color: var(--gold); font-size: 16px; }
+  .hy-row { display: grid; grid-template-columns: 10px auto 1fr auto; align-items: center; gap: 8px; padding: 9px 0 0; margin-top: 9px; border-top: 1px solid var(--line); font-size: 14px; }
+  .hy-row i { width: 10px; height: 10px; border-radius: 50%; }
+  .hy-row span { color: var(--muted); font-size: 13px; }
+  .hy-row em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .calm-empty { color: var(--muted); padding: 24px 4px; text-align: center; background: var(--panel); border-radius: 18px; }
 
   /* Kartlar */
   .cards { grid-template-columns: 1fr; gap: 10px; margin: 16px 0; }

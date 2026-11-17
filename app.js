@@ -6,6 +6,8 @@ const API = ['localhost', '127.0.0.1'].includes(location.hostname)
   : 'https://jqmfvinbzgqyitqquzdc.supabase.co/functions/v1/TEMETTU';
 
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+const MONTHS_FULL = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+let calSel = 0; // telefon takviminde seçili ay (0: içinde bulunulan ay)
 const COLORS = ['#8ec5f5', '#f5c451', '#f08a6c', '#8fd694', '#c49cf5', '#5fd3c9', '#f59cc8', '#d9c07a', '#7aa8ff', '#ffb36b', '#b5e48c', '#e9a3ff'];
 const DAY = 86400000;
 const CACHE_TTL = 6 * 3600 * 1000;
@@ -228,16 +230,38 @@ function render() {
   }
   cal.innerHTML = html;
 
-  // Telefon: 12 ay alt alta, her ayda ödeme yapan hisseler ve ay toplamı.
-  document.getElementById('calm').innerHTML = !hs.length
-    ? '<div class="calm-empty">Yukarıdaki arama kutusundan hisse, ETF veya fon ekleyin.</div>'
-    : [...MONTHS.keys()].map((i) => {
-      const m = i + 1, list = byMonth[m].sort((a, b) => a.pay.localeCompare(b.pay));
-      return `<div class="calm-row${m === nowMonth ? ' now' : ''}${list.length ? '' : ' empty'}">
-        <div class="calm-head"><span class="calm-m">${MONTHS[i]}</span><span class="calm-t">${list.length ? money(totals[m], state.cur) : '—'}</span></div>
-        ${list.length ? `<div class="calm-chips">${list.map((x) => `<span class="chipx${x.est ? ' est' : ''}" title="Ödeme ${x.est ? '~' : ''}${trDate(x.pay)}"><i style="background:${x.color}"></i>${esc(x.sym)}<b>${money(x.val, x.cur)}</b></span>`).join('')}</div>` : ''}
+  // Telefon: yıl iki yarıya bölünür (Oca–Haz üstte, Tem–Ara altta); her ay bir sütun,
+  // içinde o ay ödeme yapan hisseler. Bir aya dokununca altta ödeme tarihleri açılır.
+  const calm = document.getElementById('calm');
+  if (!hs.length) {
+    calm.innerHTML = '<div class="calm-empty">Yukarıdaki arama kutusundan hisse, ETF veya fon ekleyin.</div>';
+  } else {
+    if (!calSel) calSel = nowMonth;
+    const half = (from, title) => {
+      const ms = [0, 1, 2, 3, 4, 5].map((k) => from + k);
+      const sum = ms.reduce((s, m) => s + totals[m], 0);
+      return `<div class="hy">
+        <div class="hy-top"><span class="hy-title">${title}</span><span class="hy-sum">${sum ? money(sum, state.cur) : '—'}</span></div>
+        <div class="hy-grid">
+          ${ms.map((m) => {
+            const list = byMonth[m].sort((a, b) => a.pay.localeCompare(b.pay));
+            return `<button class="hy-col${m === nowMonth ? ' now' : ''}${m === calSel ? ' sel' : ''}${list.length ? '' : ' empty'}" data-m="${m}">
+              <span class="hy-m">${MONTHS[m - 1]}</span>
+              <span class="hy-evs">${list.length ? list.map((x) => `<span class="ev${x.est ? ' est' : ''}" style="--c:${x.color}"><b>${esc(x.sym)}</b><small>${money(x.val, x.cur, x.val >= 100 ? 0 : 2)}</small></span>`).join('') : '<span class="ev-none"></span>'}</span>
+              <span class="hy-t">${list.length ? money(totals[m], state.cur, totals[m] >= 100 ? 0 : 2) : ''}</span>
+            </button>`;
+          }).join('')}
+        </div>
       </div>`;
-    }).join('');
+    };
+    const sel = byMonth[calSel].sort((a, b) => a.pay.localeCompare(b.pay));
+    calm.innerHTML = half(1, '1. Yarıyıl · Ocak – Haziran') + half(7, '2. Yarıyıl · Temmuz – Aralık') +
+      `<div class="hy-detail">
+        <div class="hy-dh"><span>${MONTHS_FULL[calSel - 1]}</span><b>${sel.length ? money(totals[calSel], state.cur) : 'Ödeme yok'}</b></div>
+        ${sel.map((x) => `<div class="hy-row"><i style="background:${x.color}"></i><b>${esc(x.sym)}</b>
+          <span>${x.est ? '~' : ''}${trDate(x.pay)}</span><em>${money(x.val, x.cur)}</em></div>`).join('')}
+      </div>`;
+  }
 
   // Özet
   const yearStart = `${t.slice(0, 4)}-01-01`;
@@ -598,6 +622,15 @@ cards.addEventListener('click', (e) => {
   if (!confirm(`${short(sym)} portföyden kaldırılsın mı? Geçmiş kayıtları da silinir.`)) return;
   state.holdings = state.holdings.filter((h) => h.symbol !== sym);
   save(); render();
+});
+
+// Telefon takvimi: aya dokununca o ayın ödemeleri altta açılır.
+document.getElementById('calm').addEventListener('click', (e) => {
+  const m = Number(e.target.closest('[data-m]')?.dataset.m);
+  if (!m) return;
+  calSel = m;
+  render();
+  document.querySelector('.hy-detail')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
 // Takvim ipucu
