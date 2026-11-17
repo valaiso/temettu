@@ -117,6 +117,7 @@ h1 { font-size: clamp(28px, 4.2vw, 50px); font-weight: 800; margin: 4px 0 6px; l
   box-shadow: 0 0 0 2px var(--c, rgba(255,255,255,.12));
 }
 .av img.lg, .badge img.lg { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.stale { color: #f0a35e; font-weight: 600; }
 .cal .name .av { width: 26px; height: 26px; font-size: 11px; }
 img.lg.alt { object-fit: contain; padding: 9%; background: #fff; } /* FMP logoları şeffaf, beyaz zemin ister */
 .card .tk { font-weight: 800; font-size: 20px; }

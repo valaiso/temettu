@@ -78,9 +78,12 @@ async function api(params, fresh = false) {
   return j;
 }
 
+let refreshing = false;
 async function refresh(symbols = state.holdings.map((h) => h.symbol), force = false) {
   const need = force ? symbols : symbols.filter((s) => !cache.data[s] || !cache.data[s].px || Date.now() - (cache.data[s].fetchedAt || 0) > CACHE_TTL);
   if (!need.length) return;
+  if (refreshing) { setTimeout(() => refresh(symbols, force), 1500); return; } // süren yenileme bitince tekrar dene
+  refreshing = true;
   setStatus('Veriler güncelleniyor…');
   try {
     // v: yanıt biçimi değişince eski tarayıcı önbelleğini atlamak için; t: tarayıcının HTTP önbelleği en fazla 15 dk eski yanıt versin.
@@ -98,6 +101,7 @@ async function refresh(symbols = state.holdings.map((h) => h.symbol), force = fa
   } catch (e) {
     setStatus(`Veri alınamadı (${e.message}). Kayıtlı veriler gösteriliyor.`);
   }
+  refreshing = false;
   render();
 }
 
@@ -218,9 +222,9 @@ function projection(h) {
     const amt = shifted && regular && latestReal ? latestReal.amt : e.amt;
     const q = !shifted && e.ex <= t ? qtyAt(h, addDays(e.ex, -1)) : qNow;
     const m = Number(pay.slice(5, 7));
-    const rec = { pay, ex: shifted ? null : e.ex, amt, q, cash: q * amt, est: shifted || !!e.estAmt || !e.payKnown, special: !!e.special };
+    const rec = { pay, ex: shifted ? null : e.ex, amt, q, cash: q * amt, specialCash: e.special ? q * amt : 0, est: shifted || !!e.estAmt || !e.payKnown, special: !!e.special };
     const prev = byMonth.get(m);
-    if (prev) Object.assign(prev, { amt: prev.amt + amt, cash: prev.cash + rec.cash, est: prev.est || rec.est, special: prev.special || rec.special });
+    if (prev) Object.assign(prev, { amt: prev.amt + amt, cash: prev.cash + rec.cash, specialCash: prev.specialCash + rec.specialCash, est: prev.est || rec.est, special: prev.special || rec.special });
     else byMonth.set(m, rec);
   }
   return [...byMonth.values()].sort((a, b) => a.pay.localeCompare(b.pay));
@@ -252,7 +256,12 @@ function render() {
   const proj = new Map(hs.map((h) => [h.symbol, projection(h)]));
   const filled = new Set();
   hs.forEach((h) => qtyAt(h, t) > 0 && proj.get(h.symbol).forEach((p) => filled.add(Number(p.pay.slice(5, 7)))));
-  document.getElementById('subtitle').textContent = `${hs.length} kalem · 12 ayın ${filled.size}'${suffix(filled.size)} dolu`;
+  // Veriler 1 saatten uzun süredir güncellenemediyse (ağ, Yahoo veya sunucu sorunu) bunu üstte açıkça göster.
+  const oldest = Math.min(...hs.map((h) => cache.data[h.symbol]?.fetchedAt || 0));
+  const staleMin = hs.length ? Math.round((Date.now() - oldest) / 60000) : 0;
+  const stale = staleMin > 60 && !refreshing
+    ? ` · <span class="stale">⚠ Veriler ${oldest ? (staleMin < 1440 ? `${Math.round(staleMin / 60)} saattir` : `${Math.round(staleMin / 1440)} gündür`) : 'henüz'} güncellenemedi</span>` : '';
+  document.getElementById('subtitle').innerHTML = `${hs.length} kalem · 12 ayın ${filled.size}'${suffix(filled.size)} dolu${stale}`;
 
   // Takvim
   const cal = document.getElementById('cal');
@@ -335,7 +344,10 @@ function render() {
     const got = receivedIn(h);
     const yrRaw = proj.get(h.symbol).reduce((s, p) => s + p.cash * net(h, p.pay), 0);
     const yr = toCur(yrRaw, cur);
-    const yieldPct = info?.price && yrRaw && q > 0 ? (yrRaw / (q * info.price)) * 100 : null; // stopaj sonrası verim, kendi para biriminde
+    // Stopaj sonrası verim, kendi para biriminde; tek seferlik ekstra temettü verimi şişirmesin diye hariç tutulur.
+    const extraRaw = proj.get(h.symbol).reduce((s, p) => s + p.specialCash * net(h, p.pay), 0);
+    const yieldPct = info?.price && yrRaw - extraRaw > 0 && q > 0 ? ((yrRaw - extraRaw) / (q * info.price)) * 100 : null;
+    const pays = info?.divs?.length > 0;
     return `<div class="panel card" data-sym="${esc(h.symbol)}">
       <button class="x" data-act="remove" title="Kaldır">×</button>
       <div class="hd"><span class="badge${short(h.symbol).length >= 5 ? ' long' : ''}" style="background:${colorOf(h)};--c:${colorOf(h)}">${esc(short(h.symbol).slice(0, 5))}${logoImg(h.symbol)}</span>
@@ -345,10 +357,10 @@ function render() {
           <svg viewBox="0 0 24 24" fill="none" stroke="${q > 0 ? 'var(--green)' : 'var(--faint)'}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.6 2.5L16 9.5"/></svg></div></div>
         <div class="r"><div class="k">Alınan temettü</div><div class="v gold">${money(got, state.cur)}</div></div>
       </div>
-      <div class="ft"><span>Yıllık ${money(yr, state.cur)}${yieldPct ? ` · net verim %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}</span>
+      <div class="ft"><span>${!info || pays ? `Yıllık ${money(yr, state.cur)}${extraRaw > 0 ? ' (ekstra temettü dahil)' : ''}${yieldPct ? ` · net verim %${yieldPct.toFixed(2).replace('.', ',')}` : ''} · Stopaj %${taxRate(h)}` : 'Temettü dağıtmıyor'}</span>
         <label title="İlk alış tarihi">İlk alış <input type="date" value="${h.log[0]?.d || t}" max="${t}" data-act="since"></label></div>
       ${!info ? '<div class="err">Veri yok; Ayarlar → Verileri yenile.</div>'
-        : !proj.get(h.symbol).length ? `<div class="err">${info.divs.length ? `Son temettü ${trDate(info.divs.at(-1).ex)}; son bir yılda dağıtım yok.` : 'Temettü geçmişi bulunamadı.'}</div>` : ''}
+        : pays && !proj.get(h.symbol).length ? `<div class="err">Son temettü ${trDate(info.divs.at(-1).ex)}; son bir yılda dağıtım yok.</div>` : ''}
     </div>`;
   }).join('');
 
@@ -423,7 +435,7 @@ document.addEventListener('error', (e) => {
   if (next) { img.classList.toggle('alt', next.alt); img.src = next.url; } else img.remove();
 }, true);
 // Küçük yuvarlak logo (çevresinde kalemin rengi); logo yoksa baş harf.
-const avatar = (sym, color = '') => `<span class="av"${color ? ` style="--c:${color}"` : ''}>${esc(short(sym).slice(0, 1))}${logoImg(sym)}</span>`;
+const avatar = (sym, color = '') => `<span class="av" aria-hidden="true"${color ? ` style="--c:${color}"` : ''}>${esc(short(sym).slice(0, 1))}${logoImg(sym)}</span>`;
 
 // ---------- Grafikler ----------
 const charts = {};
@@ -581,7 +593,7 @@ function renderGrowth(hs) {
       line('Yıllık temettü geliri', s.map((x) => x.income), '242,193,78', true),
       line('Toplam alınan temettü', s.map((x) => x.divs), '127,209,139'),
     ] } }, cur);
-    note.textContent = 'Altın çizgi: o günkü adetlerinizle bir yılda alacağınız net temettü; eklemeler ve temettü artışlarıyla yükselir. Yeşil çizgi: o güne kadar hesabınıza geçen net temettülerin toplamı.';
+    note.textContent = 'Altın çizgi: o günkü adetlerinizle bir yılda alacağınız net temettü; eklemeler ve temettü artışlarıyla yükselir; tek seferlik ekstra temettüler dahil edilmez, bu yüzden üstteki "Yıllık beklenen"den farklı olabilir. Yeşil çizgi: o güne kadar hesabınıza geçen net temettülerin toplamı.';
   } else {
     const gain = (x) => x.value + x.divs - x.invested;
     const total = gain(b), period = gain(b) - gain(a);
