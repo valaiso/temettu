@@ -390,24 +390,36 @@ const suffix = (n) => ({ 0: 'ı', 1: 'i', 2: 'si', 3: 'ü', 4: 'ü', 5: 'i', 6: 
 function colorOf(h) { return COLORS[state.holdings.indexOf(h) % COLORS.length]; }
 
 // ---------- Logolar ----------
-// Önce Parqet (kare, zeminli logolar; ABD ve BIST'in .IS sembolleri), yoksa Financial Modeling Prep.
-// İkisinde de yoksa kalemin renginde harf rozeti kalır. Bulunamayan kaynak bu oturumda bir daha denenmez.
-const LOGO_SRC = [
-  (s) => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(s)}?format=png&size=96`,
-  (s) => `https://financialmodelingprep.com/image-stock/${encodeURIComponent(s)}.png`,
-];
-const logoTry = {};
+// Önce Parqet (kare, zeminli logolar; ABD ve BIST'in .IS sembolleri), yoksa Financial Modeling Prep (şeffaf, beyaz zemin ister).
+// İkisinde de yoksa ya da logo yanlışsa kalemin renginde harf rozeti kalır. Yüklenemeyen adres bu oturumda bir daha denenmez.
+const PARQET = (s) => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(s)}?format=png&size=96`;
+const FMP = (s) => `https://financialmodelingprep.com/image-stock/${encodeURIComponent(s)}.png`;
+// Elle kontrol edilip yanlış bulunanlar (fabrika fotoğrafı, bozuk/kırpık görüntü, başka şirketin logosu).
+// Yeni bir yanlış logo görülürse sembolü ilgili listeye eklemek yeterli.
+const BAD_LOGO = {
+  parqet: new Set(['EREGL.IS', 'TOASO.IS', 'PGSUS.IS', 'YKBNK.IS', 'CCOLA.IS', 'ALARK.IS']),
+  fmp: new Set(['EREGL.IS', 'TOASO.IS', 'PGSUS.IS', 'YKBNK.IS', 'CCOLA.IS', 'ALARK.IS', 'XLE', 'JEPI', 'IVV']),
+};
+const logoName = (sym) => cache.data[sym]?.name || state.holdings.find((h) => h.symbol === sym)?.name || lastResults.find((r) => r.symbol === sym)?.name || '';
+function logoUrls(sym) {
+  // SPDR fonlarında (SPY, XLK, XLE, SDY, GLD…) Parqet yöneticinin (State Street) logosunu verir; bilinen SPDR logosu kullanılır.
+  if (/\bSPDR\b/i.test(logoName(sym)) || sym === 'SPY') return [{ url: FMP('SPY'), alt: true }];
+  return [
+    !BAD_LOGO.parqet.has(sym) && { url: PARQET(sym), alt: false },
+    !BAD_LOGO.fmp.has(sym) && { url: FMP(sym), alt: true },
+  ].filter(Boolean);
+}
+const logoBad = new Set();
 function logoImg(sym) {
-  const i = logoTry[sym] || 0;
-  if (i >= LOGO_SRC.length) return '';
-  return `<img class="lg${i ? ' alt' : ''}" src="${LOGO_SRC[i](sym)}" alt="" decoding="async" data-sym="${esc(sym)}" data-i="${i}">`;
+  const src = logoUrls(sym).find((s) => !logoBad.has(s.url));
+  return src ? `<img class="lg${src.alt ? ' alt' : ''}" src="${src.url}" alt="" decoding="async" data-sym="${esc(sym)}">` : '';
 }
 document.addEventListener('error', (e) => {
   const img = e.target;
   if (!(img instanceof HTMLImageElement) || !img.classList.contains('lg')) return;
-  const s = img.dataset.sym, next = Number(img.dataset.i) + 1;
-  logoTry[s] = Math.max(logoTry[s] || 0, next);
-  if (next < LOGO_SRC.length) { img.dataset.i = next; img.classList.add('alt'); img.src = LOGO_SRC[next](s); } else img.remove();
+  logoBad.add(img.getAttribute('src'));
+  const next = logoUrls(img.dataset.sym).find((s) => !logoBad.has(s.url));
+  if (next) { img.classList.toggle('alt', next.alt); img.src = next.url; } else img.remove();
 }, true);
 // Küçük yuvarlak logo (çevresinde kalemin rengi); logo yoksa baş harf.
 const avatar = (sym, color = '') => `<span class="av"${color ? ` style="--c:${color}"` : ''}>${esc(short(sym).slice(0, 1))}${logoImg(sym)}</span>`;
