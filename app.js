@@ -10,7 +10,7 @@ const MONTHS_FULL = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Te
 let calSel = 0; // telefon takviminde seçili ay (0: içinde bulunulan ay)
 const COLORS = ['#8ec5f5', '#f5c451', '#f08a6c', '#8fd694', '#c49cf5', '#5fd3c9', '#f59cc8', '#d9c07a', '#7aa8ff', '#ffb36b', '#b5e48c', '#e9a3ff'];
 const DAY = 86400000;
-const CACHE_TTL = 6 * 3600 * 1000;
+const CACHE_TTL = 15 * 60 * 1000; // fiyatlar gün içinde değiştiği için veriler 15 dakikadan eskiyse yeniden çekilir
 
 // ---------- Depolama ----------
 const store = {
@@ -83,7 +83,8 @@ async function refresh(symbols = state.holdings.map((h) => h.symbol), force = fa
   if (!need.length) return;
   setStatus('Veriler güncelleniyor…');
   try {
-    const j = await api({ symbols: need.join(','), v: 2 }, force); // v: yanıt biçimi değişince eski tarayıcı önbelleğini atlamak için
+    // v: yanıt biçimi değişince eski tarayıcı önbelleğini atlamak için; t: tarayıcının HTTP önbelleği en fazla 15 dk eski yanıt versin.
+    const j = await api({ symbols: need.join(','), v: 2, t: Math.floor(Date.now() / CACHE_TTL) }, force);
     const now = Date.now();
     for (const [s, d] of Object.entries(j.data)) cache.data[s] = { ...d, fetchedAt: now };
     if (j.fx?.USDTRY) cache.fx = j.fx.USDTRY;
@@ -497,6 +498,14 @@ function convAt(value, from, iso, to = state.cur) {
   return NaN;
 }
 
+// Son fiyat güncellemesinin saati ve piyasa saatleri (bugünkü nokta piyasa açılana kadar dünkü kapanışla aynıdır).
+function priceNote() {
+  const at = Math.max(0, ...visible().map((h) => cache.data[h.symbol]?.fetchedAt || 0));
+  if (!at) return '';
+  const when = new Date(at).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return ` Son fiyat güncellemesi: ${when} (15 dakikada bir yenilenir; fiyatlar 15 dakikaya kadar gecikmeli). Bugünün noktası piyasa açılana kadar önceki kapanışla aynıdır: ABD TSİ 17:30–24:00 (yaz saatinde 16:30–23:00), BIST 10:00–18:00.`;
+}
+
 const RANGES = [['1H', 7], ['1A', 30], ['3A', 91], ['6A', 182], ['1Y', 365], ['3Y', 1095], ['5Y', 1826], ['ALL', null]];
 
 // Gün gün: yatırılan para (adet eklemeleri o günün fiyatıyla), portföy değeri, alınan temettü ve yıllık temettü geliri.
@@ -531,7 +540,7 @@ function growthSeries(hs) {
       const q = qtyAt(h, d);
       if (!(q > 0)) continue;
       const info = cache.data[h.symbol], c = curOf(h);
-      const p = lastAt(info?.px, d);
+      const p = d === t && info?.price ? info.price : lastAt(info?.px, d); // bugün: anlık fiyat
       if (p) value += convAt(q * p, c, d);
       income += convAt(q * annualPerShare(evsBy.get(h.symbol), d, h) * net(h, d), c, d);
     }
@@ -586,7 +595,7 @@ function renderGrowth(hs) {
       line('Portföy değeri', s.map((x) => x.value), '232,93,155'),
       line('Yatırılan (eklemeler)', s.map((x) => x.invested), '220,224,232'),
     ] } }, cur);
-    note.textContent = 'Beyaz: eklediğiniz para (adet artışları o günün kapanış fiyatıyla). Pembe: portföyün piyasa değeri. Yeşil: değer + bugüne kadar alınan net temettüler; beyaz çizginin üstünde kalan kısım kazancınızdır. Geçmiş değerler o günün USD/TRY kuruyla çevrilir.';
+    note.textContent = 'Beyaz: eklediğiniz para (adet artışları o günün kapanış fiyatıyla). Pembe: portföyün piyasa değeri. Yeşil: değer + bugüne kadar alınan net temettüler; beyaz çizginin üstünde kalan kısım kazancınızdır. Geçmiş değerler o günün USD/TRY kuruyla çevrilir.' + priceNote();
   }
 }
 
@@ -898,6 +907,8 @@ if (!sb) {
 render();
 refresh();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refresh(); checkVersion(); } });
+// Sayfa açık ve görünürken fiyatlar kendiliğinden güncel kalsın (refresh yalnızca 15 dakikadan eski verileri çeker).
+setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 5 * 60 * 1000);
 
 // Yeni sürüm yayınlandıysa (telefondaki ana ekran uygulaması eski sayfayı önbellekte tutabilir) sayfayı bir kez yenile.
 async function checkVersion() {
